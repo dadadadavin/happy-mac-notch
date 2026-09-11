@@ -5,6 +5,7 @@ public struct NotchContainerView: View {
     @ObservedObject var vm: NotchViewModel
     @ObservedObject var media = MediaManager.shared
     @ObservedObject var vitals = SystemVitalsManager.shared
+    @ObservedObject var lyrics = LyricsManager.shared
     @State private var isCloseHovered: Bool = false
 
     public init(vm: NotchViewModel) {
@@ -13,48 +14,103 @@ public struct NotchContainerView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Main Notch Container
             ZStack(alignment: .top) {
-                // Background notch shape with continuous curve
-                NotchShape(
-                    topCornerRadius: vm.topRadius,
-                    bottomCornerRadius: vm.bottomRadius
-                )
-                .fill(Color.black)
-                .shadow(
-                    color: (vm.state == .open || vm.isHovering) ? Color.black.opacity(0.7) : Color.clear,
-                    radius: 12,
-                    y: 6
-                )
-
-                // Top bezel cover line (ensures pixel-perfect fusion with Mac bezel)
-                Rectangle()
+                // 1. Center Hardware Notch Container
+                ZStack(alignment: .top) {
+                    // Background notch shape with continuous curve
+                    NotchShape(
+                        topCornerRadius: vm.topRadius,
+                        bottomCornerRadius: vm.bottomRadius
+                    )
                     .fill(Color.black)
-                    .frame(height: 1)
-                    .padding(.horizontal, vm.topRadius)
+                    .shadow(
+                        color: (vm.state == .open || vm.isHovering) ? Color.black.opacity(0.7) : Color.clear,
+                        radius: 12,
+                        y: 6
+                    )
 
-                // Content Layer
-                VStack(spacing: 0) {
-                    if vm.state == .open {
-                        expandedView
-                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-                    } else {
-                        idleView
-                            .transition(.opacity)
+                    // Top bezel cover line (ensures pixel-perfect fusion with Mac bezel)
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(height: 1)
+                        .padding(.horizontal, vm.topRadius)
+
+                    // Content Layer
+                    VStack(spacing: 0) {
+                        if vm.state == .open {
+                            expandedView
+                                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                        } else {
+                            idleView
+                                .transition(.opacity)
+                        }
                     }
                 }
-            }
-            .frame(width: vm.currentWidth, height: vm.currentHeight, alignment: .top)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if vm.state == .open {
-                    vm.handleHover(hovering)
+                .frame(width: vm.currentWidth, height: vm.currentHeight, alignment: .top)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if vm.state == .open {
+                        vm.handleHover(hovering)
+                    }
+                }
+                .onTapGesture {
+                    vm.toggleOpen()
+                }
+                .onDrop(of: [.fileURL, .url], delegate: NotchDropDelegate(vm: vm))
+
+                // 2. Floating Live Lyrics Pill (Appears in the blue menu bar space beside the closed notch)
+                if vm.state == .closed && lyrics.isLyricsEnabled && media.isPlaying && !lyrics.currentLine.isEmpty {
+                    HStack(spacing: 0) {
+                        // Left half of screen space
+                        Spacer()
+
+                        // Right half begins at exact screen center
+                        HStack(spacing: 0) {
+                            // Space past physical notch right wing
+                            Spacer()
+                                .frame(width: (vm.geometry.physicalSize.width / 2.0) + 8)
+
+                            // Translucent low-opacity pill with white text
+                            HStack(spacing: 6) {
+                                Image(systemName: "music.note")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(media.sourceApp == "Spotify" ? Color.green : Color.pink)
+
+                                Text(lyrics.currentLine)
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .frame(maxWidth: 240)
+                            .background(
+                                Capsule()
+                                    .fill(Color.black.opacity(0.42))
+                                    .background(.ultraThinMaterial, in: Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                                    )
+                            )
+                            .shadow(color: Color.black.opacity(0.25), radius: 4, y: 1)
+                            .contentShape(Capsule())
+                            .onTapGesture {
+                                vm.toggleOpen()
+                            }
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.92, anchor: .leading)),
+                                removal: .opacity
+                            ))
+
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: vm.geometry.physicalSize.height, alignment: .center)
                 }
             }
-            .onTapGesture {
-                vm.toggleOpen()
-            }
-            .onDrop(of: [.fileURL, .url], delegate: NotchDropDelegate(vm: vm))
 
             Spacer()
         }

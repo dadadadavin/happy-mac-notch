@@ -74,18 +74,19 @@ public final class MediaManager: ObservableObject {
         }
     }
 
-    // High performance local progress ticker: advances by 1s in memory without running AppleScript!
+    // High performance local progress ticker: advances by 0.5s in memory for ultra-smooth lyrics sync
     private func updateProgressTicker() {
         progressTicker?.invalidate()
         progressTicker = nil
 
         if isPlaying {
-            progressTicker = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            progressTicker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self = self, self.isPlaying else { return }
                     if self.duration > 0 && self.currentTime < self.duration {
-                        self.currentTime += 1.0
+                        self.currentTime += 0.5
                         self.progress = min(1.0, self.currentTime / self.duration)
+                        LyricsManager.shared.updateTime(self.currentTime)
                     }
                 }
             }
@@ -115,6 +116,7 @@ public final class MediaManager: ObservableObject {
             self.progress = 0
             self.artwork = nil
             self.sourceApp = "System"
+            LyricsManager.shared.updateTime(0)
             updateProgressTicker()
         }
     }
@@ -174,6 +176,8 @@ public final class MediaManager: ObservableObject {
             fetchArtwork(from: artURL)
         }
 
+        LyricsManager.shared.fetchLyrics(title: self.title, artist: self.artist)
+        LyricsManager.shared.updateTime(self.currentTime)
         updateProgressTicker()
         return true
     }
@@ -224,6 +228,8 @@ public final class MediaManager: ObservableObject {
             self.progress = min(1.0, max(0.0, self.currentTime / self.duration))
         }
 
+        LyricsManager.shared.fetchLyrics(title: self.title, artist: self.artist)
+        LyricsManager.shared.updateTime(self.currentTime)
         updateProgressTicker()
         return true
     }
@@ -277,6 +283,7 @@ public final class MediaManager: ObservableObject {
         let newTime = duration * progressPercent
         self.currentTime = newTime
         self.progress = progressPercent
+        LyricsManager.shared.updateTime(newTime)
 
         if sourceApp == "Spotify" {
             _ = runAppleScript("tell application \"Spotify\" to set player position to \(newTime)")

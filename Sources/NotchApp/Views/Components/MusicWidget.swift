@@ -3,6 +3,7 @@ import SwiftUI
 public struct MusicWidget: View {
     @ObservedObject var vm: NotchViewModel
     @ObservedObject var media = MediaManager.shared
+    @ObservedObject var lyrics = LyricsManager.shared
     @State private var isPlayHovered: Bool = false
     @State private var isPrevHovered: Bool = false
     @State private var isNextHovered: Bool = false
@@ -41,8 +42,8 @@ public struct MusicWidget: View {
             }
 
             // Song Info & Dynamic Island Controls
-            VStack(alignment: .leading, spacing: 5) {
-                // Title & Equalizer
+            VStack(alignment: .leading, spacing: 4) {
+                // Title, Lyrics toggle & Equalizer
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(media.title)
@@ -66,9 +67,51 @@ public struct MusicWidget: View {
 
                     Spacer()
 
-                    // Mini sound wave visualizer
-                    EqualizerBars(isPlaying: media.isPlaying)
-                        .padding(.trailing, 2)
+                    HStack(spacing: 8) {
+                        // Lyrics Toggle Button
+                        Button(action: {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                lyrics.toggleLyrics()
+                            }
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: lyrics.isLyricsEnabled ? "quote.bubble.fill" : "quote.bubble")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("Lyrics")
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                            }
+                            .foregroundStyle(lyrics.isLyricsEnabled ? Color.white : Color.white.opacity(0.45))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(
+                                Capsule()
+                                    .fill(lyrics.isLyricsEnabled
+                                          ? (media.sourceApp == "Spotify" ? Color.green.opacity(0.35) : Color.pink.opacity(0.35))
+                                          : Color.white.opacity(0.08))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(lyrics.isLyricsEnabled ? "Turn off live lyrics" : "Turn on live lyrics")
+
+                        // Mini sound wave visualizer
+                        EqualizerBars(isPlaying: media.isPlaying)
+                            .padding(.trailing, 2)
+                    }
+                }
+
+                // In-Widget Live Lyric Preview (when lyrics enabled)
+                if lyrics.isLyricsEnabled && !lyrics.currentLine.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 8))
+                            .foregroundStyle(media.sourceApp == "Spotify" ? Color.green : Color.pink)
+                        Text(lyrics.currentLine)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.9))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .transition(.opacity)
                 }
 
                 // Interactive Progress Scrubber (Apple Style Thin Track)
