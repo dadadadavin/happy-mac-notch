@@ -5,10 +5,12 @@ import Combine
 public struct LyricLine: Identifiable, Equatable {
     public let id = UUID()
     public let time: Double
+    public let endTime: Double
     public let text: String
 
-    public init(time: Double, text: String) {
+    public init(time: Double, endTime: Double, text: String) {
         self.time = time
+        self.endTime = endTime
         self.text = text
     }
 }
@@ -27,14 +29,13 @@ public final class LyricsManager: ObservableObject {
     private var lyricsCache: [String: [LyricLine]] = [:]
     private var lastRequestedKey: String = ""
     private var fetchTask: Task<Void, Never>?
+    private var chunkTransitionTask: Task<Void, Never>?
 
-    // Lead offset (600ms) to eliminate audio buffer/Bluetooth latency and display lyrics on vocal onset
-    private let syncLeadOffset: Double = 0.60
+    // Lead offset (500ms) to eliminate audio latency and match vocal onset
+    private let syncLeadOffset: Double = 0.50
 
-    // Phrase cycling for long lines so text never cuts off with "..."
-    private var currentChunks: [String] = []
-    private var currentChunkIndex: Int = 0
-    private var chunkTimer: Timer?
+    // Monotonic line tracking: strictly prevents any backward jitter
+    private var lastActiveIndex: Int = -1
 
     private init() {
         if UserDefaults.standard.object(forKey: "enableLiveLyrics") != nil {
@@ -48,10 +49,13 @@ public final class LyricsManager: ObservableObject {
         isLyricsEnabled.toggle()
         UserDefaults.standard.set(isLyricsEnabled, forKey: "enableLiveLyrics")
         if !isLyricsEnabled {
+            currentLine = ""
             currentDisplayedText = ""
-            chunkTimer?.invalidate()
-            chunkTimer = nil
+            lastActiveIndex = -1
+            chunkTransitionTask?.cancel()
+            chunkTransitionTask = nil
         } else {
+            lastActiveIndex = -1
             updateTime(MediaManager.shared.currentTime)
         }
     }
@@ -61,108 +65,121 @@ public final class LyricsManager: ObservableObject {
             if !currentLine.isEmpty {
                 currentLine = ""
                 currentDisplayedText = ""
-                chunkTimer?.invalidate()
-                chunkTimer = nil
+                lastActiveIndex = -1
+                chunkTransitionTask?.cancel()
+                chunkTransitionTask = nil
             }
             return
         }
 
-        // Apply lead offset to perfectly anticipate vocal timing
+        // Apply lead offset to anticipate vocal onset
         let effectiveTime = time + syncLeadOffset
-        if let active = syncedLines.last(where: { $0.time <= effectiveTime }) {
-            let clean = active.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if currentLine != clean {
-                self.currentLine = clean
-                self.prepareChunks(for: clean)
-            }
-        } else {
+
+        // Find current matching line index
+        guard let index = syncedLines.lastIndex(where: { $0.time <= effectiveTime }) else {
+            // Before first lyric
             if !currentLine.isEmpty {
                 currentLine = ""
                 currentDisplayedText = ""
-                chunkTimer?.invalidate()
-                chunkTimer = nil
+                lastActiveIndex = -1
+                chunkTransitionTask?.cancel()
+                chunkTransitionTask = nil
             }
+            return
         }
+
+        let active = syncedLines[index]
+
+        // If the same line is already active, do not re-trigger or restart animations
+        if index == lastActiveIndex && currentLine == active.text {
+            return
+        }
+
+        // Jitter protection: reject small backward time slips (< 3.0s) from AppleScript polling
+        if index < lastActiveIndex && abs(effectiveTime - syncedLines[lastActiveIndex].time) < 3.0 {
+            return
+        }
+
+        lastActiveIndex = index
+        self.currentLine = active.text
+        self.displayLine(active, at: effectiveTime)
     }
 
-    private func prepareChunks(for text: String) {
-        chunkTimer?.invalidate()
-        chunkTimer = nil
+    private func displayLine(_ line: LyricLine, at currentTime: Double) {
+        chunkTransitionTask?.cancel()
+        chunkTransitionTask = nil
 
-        let chunks = splitIntoChunks(text, maxChars: 28)
-        self.currentChunks = chunks
-        self.currentChunkIndex = 0
+        let cleanText = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chunks = splitIntoChunks(cleanText, maxChars: 44)
 
-        if let first = chunks.first {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                self.currentDisplayedText = first
+        if chunks.count <= 1 {
+            // Line fits cleanly without splitting
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                self.currentDisplayedText = cleanText
             }
+            return
         }
 
-        // If the line is long, cycle through natural chunks every 1.8s so all words fit without ellipsis "..."
-        if chunks.count > 1 {
-            chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self = self, self.currentChunks.count > 1 else { return }
-                    self.currentChunkIndex = (self.currentChunkIndex + 1) % self.currentChunks.count
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        self.currentDisplayedText = self.currentChunks[self.currentChunkIndex]
+        // Long line with multiple phrases: advance once to the second phrase (NEVER loop back!)
+        let totalDuration = max(2.0, line.endTime - line.time)
+        let elapsedOnThisLine = max(0.0, currentTime - line.time)
+        let part1Duration = totalDuration * 0.48
+
+        if elapsedOnThisLine >= part1Duration {
+            // Already past part 1, show part 2
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                self.currentDisplayedText = chunks.last ?? cleanText
+            }
+        } else {
+            // Show part 1
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                self.currentDisplayedText = chunks.first ?? cleanText
+            }
+
+            // Schedule a one-time forward advance to part 2 (never loop back to part 1!)
+            let waitTime = max(0.8, part1Duration - elapsedOnThisLine)
+            chunkTransitionTask = Task {
+                try? await Task.sleep(for: .milliseconds(Int(waitTime * 1000)))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard self.currentLine == line.text else { return }
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                        self.currentDisplayedText = chunks.last ?? cleanText
                     }
                 }
             }
         }
     }
 
-    private func splitIntoChunks(_ text: String, maxChars: Int = 28) -> [String] {
+    private func splitIntoChunks(_ text: String, maxChars: Int = 44) -> [String] {
         if text.count <= maxChars {
             return [text]
         }
 
-        // 1. Try natural clause splitting (commas, semicolons, em-dashes)
+        // Try natural comma / semicolon separation
         let separators = CharacterSet(charactersIn: ",;—–")
         let parts = text.components(separatedBy: separators)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        if parts.count > 1 {
-            var chunks: [String] = []
-            var current = ""
-            for p in parts {
-                if current.isEmpty {
-                    current = p
-                } else if current.count + p.count + 2 <= maxChars {
-                    current += ", " + p
-                } else {
-                    chunks.append(current)
-                    current = p
-                }
-            }
-            if !current.isEmpty {
-                chunks.append(current)
-            }
-            if chunks.allSatisfy({ $0.count <= maxChars + 8 }) {
-                return chunks
-            }
+        if parts.count >= 2 {
+            // Split into roughly two equal halves
+            let mid = parts.count / 2
+            let firstHalf = parts[0..<mid].joined(separator: ", ")
+            let secondHalf = parts[mid...].joined(separator: ", ")
+            return [firstHalf, secondHalf]
         }
 
-        // 2. Word-boundary wrapping
+        // Fallback: word-boundary split
         let words = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-        var chunks: [String] = []
-        var current = ""
-        for w in words {
-            if current.isEmpty {
-                current = w
-            } else if current.count + w.count + 1 <= maxChars {
-                current += " " + w
-            } else {
-                chunks.append(current)
-                current = w
-            }
+        if words.count >= 4 {
+            let mid = words.count / 2
+            let firstHalf = words[0..<mid].joined(separator: " ")
+            let secondHalf = words[mid...].joined(separator: " ")
+            return [firstHalf, secondHalf]
         }
-        if !current.isEmpty {
-            chunks.append(current)
-        }
-        return chunks.isEmpty ? [text] : chunks
+
+        return [text]
     }
 
     public func fetchLyrics(title: String, artist: String) {
@@ -175,12 +192,14 @@ public final class LyricsManager: ObservableObject {
             self.currentLine = ""
             self.currentDisplayedText = ""
             self.hasLyrics = false
+            self.lastActiveIndex = -1
             return
         }
 
         if let cached = lyricsCache[cacheKey] {
             self.syncedLines = cached
             self.hasLyrics = !cached.isEmpty
+            self.lastActiveIndex = -1
             self.updateTime(MediaManager.shared.currentTime)
             return
         }
@@ -198,6 +217,7 @@ public final class LyricsManager: ObservableObject {
             self.syncedLines = lines
             self.hasLyrics = !lines.isEmpty
             self.isFetching = false
+            self.lastActiveIndex = -1
             self.updateTime(MediaManager.shared.currentTime)
         }
     }
@@ -240,7 +260,7 @@ public final class LyricsManager: ObservableObject {
     }
 
     private func parseLRC(_ lrc: String) -> [LyricLine] {
-        var lines: [LyricLine] = []
+        var rawLines: [(time: Double, text: String)] = []
         let pattern = #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.*)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
@@ -265,15 +285,21 @@ public final class LyricsManager: ObservableObject {
                 let seconds = Double(secStr) ?? 0
                 let totalSecs = minutes * 60.0 + seconds + csVal
 
-                // Skip instrumental marks or headers
                 let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !cleanText.isEmpty && !cleanText.hasPrefix("[") {
-                    lines.append(LyricLine(time: totalSecs, text: cleanText))
+                    rawLines.append((time: totalSecs, text: cleanText))
                 }
             }
         }
 
-        return lines.sorted { $0.time < $1.time }
+        let sorted = rawLines.sorted { $0.time < $1.time }
+        var result: [LyricLine] = []
+        for i in 0..<sorted.count {
+            let item = sorted[i]
+            let nextTime = (i + 1 < sorted.count) ? sorted[i + 1].time : (item.time + 6.0)
+            result.append(LyricLine(time: item.time, endTime: nextTime, text: item.text))
+        }
+        return result
     }
 
     private func cleanTrackTitle(_ raw: String) -> String {

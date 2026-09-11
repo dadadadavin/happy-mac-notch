@@ -160,7 +160,16 @@ public final class MediaManager: ObservableObject {
         self.sourceApp = "Spotify"
 
         let posStr = parts[4].replacingOccurrences(of: ",", with: ".")
-        self.currentTime = Double(posStr) ?? 0
+        let reportedPos = Double(posStr) ?? 0
+
+        // Monotonic time smoothing: prevents AppleScript integer rounding from dragging ticker backward
+        if self.isPlaying && reportedPos > 0 && abs(reportedPos - self.currentTime) < 1.8 {
+            if reportedPos > self.currentTime {
+                self.currentTime = reportedPos
+            }
+        } else {
+            self.currentTime = reportedPos
+        }
 
         if let durMs = Double(parts[5].replacingOccurrences(of: ",", with: ".")) {
             self.duration = durMs > 1000 ? (durMs / 1000.0) : durMs
@@ -218,8 +227,16 @@ public final class MediaManager: ObservableObject {
         self.album = parts[3]
         self.sourceApp = "Apple Music"
 
-        let posStr = parts[4].replacingOccurrences(of: ",", with: ".")
-        self.currentTime = Double(posStr) ?? 0
+        let posMusic = parts[4].replacingOccurrences(of: ",", with: ".")
+        let reportedMusicPos = Double(posMusic) ?? 0
+
+        if self.isPlaying && reportedMusicPos > 0 && abs(reportedMusicPos - self.currentTime) < 1.8 {
+            if reportedMusicPos > self.currentTime {
+                self.currentTime = reportedMusicPos
+            }
+        } else {
+            self.currentTime = reportedMusicPos
+        }
 
         let durStr = parts[5].replacingOccurrences(of: ",", with: ".")
         self.duration = Double(durStr) ?? 0
