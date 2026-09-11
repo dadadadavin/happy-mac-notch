@@ -141,14 +141,15 @@ public struct NotchContainerView: View {
 
     // Expanded full panel view (Apple Control Center / Dynamic Island style)
     private var expandedView: some View {
-        VStack(spacing: 3) {
-            // TOP HEADER ROW (flanking the physical notch neatly)
+        VStack(spacing: 7) {
+            // TOP HEADER ROW (flanking the physical notch neatly with ample corner clearance)
             HStack(spacing: 0) {
-                // Left Wing: Music & Drop Shelf tabs centered neatly in the left wing
+                // Left Wing: Music & Drop Shelf tabs with generous clearance from notch outer curve
                 HStack(spacing: 8) {
                     tabButton(for: .music)
                     tabButton(for: .dropZone)
                 }
+                .padding(.leading, 14)
                 .frame(maxWidth: .infinity, alignment: .center)
 
                 // CENTER: PHYSICAL HARDWARE NOTCH HOLE
@@ -157,7 +158,7 @@ public struct NotchContainerView: View {
                     .fill(Color.black)
                     .frame(width: vm.geometry.physicalSize.width, height: vm.geometry.physicalSize.height)
 
-                // Right Wing: Stats tab and Close button centered neatly
+                // Right Wing: Stats tab and Close button centered neatly with corner clearance
                 HStack(spacing: 12) {
                     tabButton(for: .stats)
 
@@ -178,11 +179,12 @@ public struct NotchContainerView: View {
                         withAnimation(.easeInOut(duration: 0.12)) { isCloseHovered = hovering }
                     }
                 }
+                .padding(.trailing, 14)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
             .frame(height: vm.geometry.physicalSize.height)
 
-            // CONTENT CARD (Directly below the notch, snug and compact)
+            // CONTENT CARD (Directly below the notch, elegant breathing room)
             Group {
                 switch vm.activeTab {
                 case .music:
@@ -193,7 +195,7 @@ public struct NotchContainerView: View {
                     SystemStatsWidget(vm: vm)
                 }
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
         }
     }
 
@@ -210,13 +212,14 @@ public struct NotchContainerView: View {
                     .font(.system(size: 11, weight: vm.activeTab == tab ? .semibold : .medium, design: .rounded))
             }
             .foregroundStyle(vm.activeTab == tab ? Color.white : Color.white.opacity(0.6))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4.5)
+            .padding(.horizontal, 8.5)
+            .padding(.vertical, 4)
             .background(
                 Capsule()
-                    .fill(vm.activeTab == tab ? Color.white.opacity(0.22) : Color.clear)
+                    .fill(vm.activeTab == tab ? Color.white.opacity(0.20) : Color.clear)
                     .shadow(color: vm.activeTab == tab ? Color.black.opacity(0.25) : Color.clear, radius: 2, y: 1)
             )
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }

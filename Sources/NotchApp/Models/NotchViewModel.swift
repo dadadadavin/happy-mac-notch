@@ -93,7 +93,7 @@ public final class NotchViewModel: ObservableObject {
         case .compact:
             return geometry.physicalSize.width + 120
         case .open:
-            return 560
+            return 585
         }
     }
 
@@ -104,7 +104,7 @@ public final class NotchViewModel: ObservableObject {
         case .compact:
             return geometry.physicalSize.height
         case .open:
-            return geometry.physicalSize.height + 116
+            return geometry.physicalSize.height + 122
         }
     }
 
@@ -147,9 +147,9 @@ public final class NotchViewModel: ObservableObject {
         let distX = abs(mouseLoc.x - cachedScreenMidX)
 
         if state == .open {
-            // Immediate collapse: as soon as cursor leaves the 560pt card boundaries (280pt half-width)
+            // Immediate collapse: as soon as cursor leaves the 585pt card boundaries (292.5pt half-width)
             // or drops below the card bottom (currentHeight + 6pt)
-            let isOutsideCard = (distX > 285) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
+            let isOutsideCard = (distX > 298) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isOutsideCard {
                 DispatchQueue.main.async { [weak self] in
                     self?.handleHover(false)
@@ -208,7 +208,7 @@ public final class NotchViewModel: ObservableObject {
                 cancelHoverTask()
             }
         } else if state == .open {
-            let isFarAway = (distX > 285) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
+            let isFarAway = (distX > 298) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isFarAway {
                 handleHover(false)
             }

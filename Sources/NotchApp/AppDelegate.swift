@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ApplicationServices
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -10,6 +11,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let maxWindowHeight: CGFloat = 280
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        checkAccessibilityPermissions()
         setupNotchWindow()
 
         // Observe screen changes (connecting/disconnecting external monitors)
@@ -19,6 +21,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+    }
+
+    private func checkAccessibilityPermissions() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     private func setupNotchWindow() {
