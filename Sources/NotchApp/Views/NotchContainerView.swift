@@ -301,6 +301,19 @@ public struct LiveLyricsPillView: View {
         .onTapGesture {
             onTap()
         }
+        .contextMenu {
+            Text(lyrics.userOffset == 0 ? "Sync: Normal (0.0s)" : String(format: "Manual Sync Offset: %+.1fs", lyrics.userOffset))
+            Divider()
+            Button("Nudge Earlier (+0.5s)") {
+                lyrics.nudgeEarlier()
+            }
+            Button("Nudge Later (-0.5s)") {
+                lyrics.nudgeLater()
+            }
+            Button("Reset Sync (0.0s)") {
+                lyrics.resetOffset()
+            }
+        }
     }
 }
 

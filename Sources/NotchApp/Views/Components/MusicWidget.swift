@@ -94,7 +94,20 @@ public struct MusicWidget: View {
                             )
                         }
                         .buttonStyle(.plain)
-                        .help(lyrics.isLyricsEnabled ? "Turn off live lyrics" : "Turn on live lyrics")
+                        .help(lyrics.isLyricsEnabled ? "Turn off live lyrics (Right-click to adjust sync)" : "Turn on live lyrics")
+                        .contextMenu {
+                            Text(lyrics.userOffset == 0 ? "Sync: Normal (0.0s)" : String(format: "Manual Sync Offset: %+.1fs", lyrics.userOffset))
+                            Divider()
+                            Button("Nudge Earlier (+0.5s)") {
+                                lyrics.nudgeEarlier()
+                            }
+                            Button("Nudge Later (-0.5s)") {
+                                lyrics.nudgeLater()
+                            }
+                            Button("Reset Sync (0.0s)") {
+                                lyrics.resetOffset()
+                            }
+                        }
 
                         // Animated Live Equalizer (never stuck as dots)
                         EqualizerBars(

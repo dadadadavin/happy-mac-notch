@@ -31,8 +31,11 @@ public final class LyricsManager: ObservableObject {
     private var fetchTask: Task<Void, Never>?
     private var chunkTransitionTask: Task<Void, Never>?
 
-    // Lead offset (500ms) to eliminate audio latency and match vocal onset
-    private let syncLeadOffset: Double = 0.50
+    // Gentle lead offset (150ms) to compensate for display refresh without rushing ahead of vocalists
+    private let syncLeadOffset: Double = 0.15
+
+    // Manual user sync offset (+/- seconds, adjustable via context menu)
+    @Published public var userOffset: Double = 0.0
 
     // Monotonic line tracking: strictly prevents any backward jitter
     private var lastActiveIndex: Int = -1
@@ -43,6 +46,21 @@ public final class LyricsManager: ObservableObject {
         } else {
             self.isLyricsEnabled = true
         }
+    }
+
+    public func nudgeEarlier() {
+        userOffset += 0.50
+        updateTime(MediaManager.shared.currentTime)
+    }
+
+    public func nudgeLater() {
+        userOffset -= 0.50
+        updateTime(MediaManager.shared.currentTime)
+    }
+
+    public func resetOffset() {
+        userOffset = 0.0
+        updateTime(MediaManager.shared.currentTime)
     }
 
     public func toggleLyrics() {
@@ -73,8 +91,8 @@ public final class LyricsManager: ObservableObject {
             return
         }
 
-        // Apply lead offset to anticipate vocal onset
-        let effectiveTime = time + syncLeadOffset
+        // Apply natural lead offset + user manual offset
+        let effectiveTime = max(0.0, time + syncLeadOffset + userOffset)
 
         // Find current matching line index
         guard let index = syncedLines.lastIndex(where: { $0.time <= effectiveTime }) else {
@@ -183,10 +201,11 @@ public final class LyricsManager: ObservableObject {
         return [text]
     }
 
-    public func fetchLyrics(title: String, artist: String) {
+    public func fetchLyrics(title: String, artist: String, album: String = "", duration: Double = 0) {
         let cleanTitle = cleanTrackTitle(title)
         let cleanArtist = cleanArtistName(artist)
-        let cacheKey = "\(cleanTitle.lowercased())|\(cleanArtist.lowercased())"
+        let roundedDur = Int(duration.rounded())
+        let cacheKey = "\(cleanTitle.lowercased())|\(cleanArtist.lowercased())|\(roundedDur)"
 
         guard !cleanTitle.isEmpty, cleanTitle != "no media playing", cleanTitle != "nothing playing" else {
             self.syncedLines = []
@@ -194,6 +213,7 @@ public final class LyricsManager: ObservableObject {
             self.currentDisplayedText = ""
             self.hasLyrics = false
             self.lastActiveIndex = -1
+            self.userOffset = 0.0
             return
         }
 
@@ -201,6 +221,7 @@ public final class LyricsManager: ObservableObject {
             self.syncedLines = cached
             self.hasLyrics = !cached.isEmpty
             self.lastActiveIndex = -1
+            self.userOffset = 0.0
             self.updateTime(MediaManager.shared.currentTime)
             return
         }
@@ -211,7 +232,7 @@ public final class LyricsManager: ObservableObject {
         fetchTask?.cancel()
         fetchTask = Task {
             self.isFetching = true
-            let lines = await self.performSearch(title: cleanTitle, artist: cleanArtist)
+            let lines = await self.fetchBestLyrics(title: cleanTitle, artist: cleanArtist, album: album, duration: duration)
             guard !Task.isCancelled else { return }
 
             self.lyricsCache[cacheKey] = lines
@@ -219,49 +240,119 @@ public final class LyricsManager: ObservableObject {
             self.hasLyrics = !lines.isEmpty
             self.isFetching = false
             self.lastActiveIndex = -1
+            self.userOffset = 0.0
             self.updateTime(MediaManager.shared.currentTime)
         }
     }
 
-    private func performSearch(title: String, artist: String) async -> [LyricLine] {
+    private func fetchBestLyrics(title: String, artist: String, album: String, duration: Double) async -> [LyricLine] {
+        // 1. Try exact match query via /api/get with track duration
+        if let exactLines = await tryExactGet(title: title, artist: artist, album: album, duration: duration), !exactLines.isEmpty {
+            return exactLines
+        }
+
+        // 2. Fallback to /api/search with duration-based closest release selection
+        return await performSearchWithDurationMatching(title: title, artist: artist, targetDuration: duration)
+    }
+
+    private func tryExactGet(title: String, artist: String, album: String, duration: Double) async -> [LyricLine]? {
+        guard duration > 10 else { return nil }
+        var components = URLComponents(string: "https://lrclib.net/api/get")
+        var items = [
+            URLQueryItem(name: "track_name", value: title),
+            URLQueryItem(name: "artist_name", value: artist),
+            URLQueryItem(name: "duration", value: String(Int(duration.rounded())))
+        ]
+        if !album.isEmpty && album != "Unknown Album" {
+            items.append(URLQueryItem(name: "album_name", value: album))
+        }
+        components?.queryItems = items
+        guard let url = components?.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.setValue("HappyMacNotch/1.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 5.0
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            struct Item: Decodable {
+                let syncedLyrics: String?
+            }
+            let item = try JSONDecoder().decode(Item.self, from: data)
+            if let synced = item.syncedLyrics, synced.count > 10 {
+                return parseLRC(synced)
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
+    private func performSearchWithDurationMatching(title: String, artist: String, targetDuration: Double) async -> [LyricLine] {
         var components = URLComponents(string: "https://lrclib.net/api/search")
         var queryItems = [URLQueryItem(name: "track_name", value: title)]
         if !artist.isEmpty && artist != "Spotify / Apple Music" && artist != "System" {
             queryItems.append(URLQueryItem(name: "artist_name", value: artist))
         }
         components?.queryItems = queryItems
-
         guard let url = components?.url else { return [] }
 
         var request = URLRequest(url: url)
         request.setValue("HappyMacNotch/1.0", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 8.0
+        request.timeoutInterval = 6.0
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
 
-            struct Item: Decodable {
+            struct SearchItem: Decodable {
                 let syncedLyrics: String?
-                let plainLyrics: String?
+                let duration: Double?
             }
 
-            let items = try JSONDecoder().decode([Item].self, from: data)
-            if let firstSynced = items.first(where: { ($0.syncedLyrics ?? "").count > 10 }),
-               let syncedText = firstSynced.syncedLyrics {
-                return parseLRC(syncedText)
-            } else if let first = items.first, let synced = first.syncedLyrics, !synced.isEmpty {
+            let items = try JSONDecoder().decode([SearchItem].self, from: data)
+            let syncedItems = items.filter { ($0.syncedLyrics ?? "").count > 10 }
+            guard !syncedItems.isEmpty else { return [] }
+
+            if targetDuration > 10 {
+                // Find candidate with smallest duration variance to avoid radio edits or live extensions!
+                let sortedByDuration = syncedItems.sorted { a, b in
+                    let diffA = abs((a.duration ?? targetDuration) - targetDuration)
+                    let diffB = abs((b.duration ?? targetDuration) - targetDuration)
+                    return diffA < diffB
+                }
+                if let best = sortedByDuration.first, let synced = best.syncedLyrics {
+                    return parseLRC(synced)
+                }
+            }
+
+            if let first = syncedItems.first, let synced = first.syncedLyrics {
                 return parseLRC(synced)
             }
         } catch {
             return []
         }
-
         return []
     }
 
     private func parseLRC(_ lrc: String) -> [LyricLine] {
         var rawLines: [(time: Double, text: String)] = []
+
+        // Extract [offset: +/- ms] if present in LRC header
+        var lrcOffsetSeconds = 0.0
+        let offsetPattern = #"\[offset:\s*([+-]?\d+)\s*\]"#
+        if let offsetRegex = try? NSRegularExpression(pattern: offsetPattern, options: .caseInsensitive) {
+            let nsLrc = lrc as NSString
+            if let match = offsetRegex.firstMatch(in: lrc, range: NSRange(location: 0, length: nsLrc.length)),
+               match.numberOfRanges >= 2 {
+                let offsetStr = nsLrc.substring(with: match.range(at: 1))
+                if let offsetMs = Double(offsetStr) {
+                    lrcOffsetSeconds = offsetMs / 1000.0
+                }
+            }
+        }
+
         let pattern = #"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.*)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
@@ -284,7 +375,7 @@ public final class LyricsManager: ObservableObject {
                 let text = match.range(at: 4).location != NSNotFound ? ns.substring(with: match.range(at: 4)) : ""
                 let minutes = Double(minStr) ?? 0
                 let seconds = Double(secStr) ?? 0
-                let totalSecs = minutes * 60.0 + seconds + csVal
+                let totalSecs = max(0.0, minutes * 60.0 + seconds + csVal + lrcOffsetSeconds)
 
                 let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !cleanText.isEmpty && !cleanText.hasPrefix("[") {

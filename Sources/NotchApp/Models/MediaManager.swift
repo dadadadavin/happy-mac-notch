@@ -193,7 +193,12 @@ public final class MediaManager: ObservableObject {
             fetchArtwork(from: artURL)
         }
 
-        LyricsManager.shared.fetchLyrics(title: self.title, artist: self.artist)
+        LyricsManager.shared.fetchLyrics(
+            title: self.title,
+            artist: self.artist,
+            album: self.album,
+            duration: self.duration
+        )
         LyricsManager.shared.updateTime(self.currentTime)
         updateProgressTicker()
         return true
@@ -253,7 +258,12 @@ public final class MediaManager: ObservableObject {
             self.progress = min(1.0, max(0.0, self.currentTime / self.duration))
         }
 
-        LyricsManager.shared.fetchLyrics(title: self.title, artist: self.artist)
+        LyricsManager.shared.fetchLyrics(
+            title: self.title,
+            artist: self.artist,
+            album: self.album,
+            duration: self.duration
+        )
         LyricsManager.shared.updateTime(self.currentTime)
         updateProgressTicker()
         return true
