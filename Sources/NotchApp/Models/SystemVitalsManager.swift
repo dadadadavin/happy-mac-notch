@@ -129,27 +129,45 @@ public final class SystemVitalsManager: ObservableObject {
         self.storageRatio = max(0.0, min(1.0, Double(total - free) / Double(total)))
     }
 
-    public func updateSocTemperature() {
-        typealias IOHIDEventSystemClientCreateFunc = @convention(c) (CFAllocator?) -> Unmanaged<AnyObject>?
-        typealias IOHIDEventSystemClientSetMatchingFunc = @convention(c) (AnyObject, CFDictionary) -> Void
-        typealias IOHIDEventSystemClientCopyServicesFunc = @convention(c) (AnyObject) -> Unmanaged<CFArray>?
-        typealias IOHIDServiceClientCopyEventFunc = @convention(c) (AnyObject, Int64, Int32, Int64) -> Unmanaged<AnyObject>?
-        typealias IOHIDEventGetFloatValueFunc = @convention(c) (AnyObject, Int32) -> Double
+    @MainActor
+    private struct IOHIDTemperatureBridge {
+        typealias ClientCreateFunc = @convention(c) (CFAllocator?) -> Unmanaged<AnyObject>?
+        typealias SetMatchingFunc = @convention(c) (AnyObject, CFDictionary) -> Void
+        typealias CopyServicesFunc = @convention(c) (AnyObject) -> Unmanaged<CFArray>?
+        typealias CopyEventFunc = @convention(c) (AnyObject, Int64, Int32, Int64) -> Unmanaged<AnyObject>?
+        typealias GetFloatValueFunc = @convention(c) (AnyObject, Int32) -> Double
 
-        let handle = dlopen(nil, RTLD_NOW)
-        guard let s1 = dlsym(handle, "IOHIDEventSystemClientCreate"),
-              let s2 = dlsym(handle, "IOHIDEventSystemClientSetMatching"),
-              let s3 = dlsym(handle, "IOHIDEventSystemClientCopyServices"),
-              let s4 = dlsym(handle, "IOHIDServiceClientCopyEvent"),
-              let s5 = dlsym(handle, "IOHIDEventGetFloatValue") else {
+        static let handle = dlopen(nil, RTLD_NOW)
+        static let clientCreate: ClientCreateFunc? = {
+            guard let s = dlsym(handle, "IOHIDEventSystemClientCreate") else { return nil }
+            return unsafeBitCast(s, to: ClientCreateFunc.self)
+        }()
+        static let setMatching: SetMatchingFunc? = {
+            guard let s = dlsym(handle, "IOHIDEventSystemClientSetMatching") else { return nil }
+            return unsafeBitCast(s, to: SetMatchingFunc.self)
+        }()
+        static let copyServices: CopyServicesFunc? = {
+            guard let s = dlsym(handle, "IOHIDEventSystemClientCopyServices") else { return nil }
+            return unsafeBitCast(s, to: CopyServicesFunc.self)
+        }()
+        static let copyEvent: CopyEventFunc? = {
+            guard let s = dlsym(handle, "IOHIDServiceClientCopyEvent") else { return nil }
+            return unsafeBitCast(s, to: CopyEventFunc.self)
+        }()
+        static let getFloatValue: GetFloatValueFunc? = {
+            guard let s = dlsym(handle, "IOHIDEventGetFloatValue") else { return nil }
+            return unsafeBitCast(s, to: GetFloatValueFunc.self)
+        }()
+    }
+
+    public func updateSocTemperature() {
+        guard let clientCreate = IOHIDTemperatureBridge.clientCreate,
+              let setMatching = IOHIDTemperatureBridge.setMatching,
+              let copyServices = IOHIDTemperatureBridge.copyServices,
+              let copyEvent = IOHIDTemperatureBridge.copyEvent,
+              let getFloatValue = IOHIDTemperatureBridge.getFloatValue else {
             return
         }
-
-        let clientCreate = unsafeBitCast(s1, to: IOHIDEventSystemClientCreateFunc.self)
-        let setMatching = unsafeBitCast(s2, to: IOHIDEventSystemClientSetMatchingFunc.self)
-        let copyServices = unsafeBitCast(s3, to: IOHIDEventSystemClientCopyServicesFunc.self)
-        let copyEvent = unsafeBitCast(s4, to: IOHIDServiceClientCopyEventFunc.self)
-        let getFloatValue = unsafeBitCast(s5, to: IOHIDEventGetFloatValueFunc.self)
 
         guard let client = clientCreate(kCFAllocatorDefault)?.takeRetainedValue() else { return }
         let dict: [String: Any] = ["PrimaryUsagePage": 0xff00, "PrimaryUsage": 5]

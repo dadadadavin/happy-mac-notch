@@ -58,6 +58,7 @@ public final class LyricsManager: ObservableObject {
             lastActiveIndex = -1
             updateTime(MediaManager.shared.currentTime)
         }
+        MediaManager.shared.updateProgressTicker()
     }
 
     public func updateTime(_ time: Double) {

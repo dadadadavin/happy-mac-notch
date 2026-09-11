@@ -141,7 +141,7 @@ public struct NotchContainerView: View {
 
     // Expanded full panel view (Apple Control Center / Dynamic Island style)
     private var expandedView: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             // TOP HEADER ROW (flanking the physical notch neatly)
             HStack(spacing: 0) {
                 // Left Wing: Music & Drop Shelf tabs centered neatly in the left wing
@@ -193,7 +193,7 @@ public struct NotchContainerView: View {
                     SystemStatsWidget(vm: vm)
                 }
             }
-            .padding(.bottom, 6)
+            .padding(.bottom, 8)
         }
     }
 

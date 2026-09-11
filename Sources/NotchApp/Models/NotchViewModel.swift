@@ -104,7 +104,7 @@ public final class NotchViewModel: ObservableObject {
         case .compact:
             return geometry.physicalSize.height
         case .open:
-            return geometry.physicalSize.height + 102
+            return geometry.physicalSize.height + 116
         }
     }
 
@@ -151,11 +151,11 @@ public final class NotchViewModel: ObservableObject {
             // or drops below the card bottom (currentHeight + 6pt)
             let isOutsideCard = (distX > 285) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isOutsideCard {
-                Task { @MainActor in
-                    self.handleHover(false)
+                DispatchQueue.main.async { [weak self] in
+                    self?.handleHover(false)
                 }
-                return
             }
+            return
         }
 
         // Fast early exit: if closed and cursor is not touching the top edge (distFromTop > 2.0 or < -3.0)
@@ -166,16 +166,16 @@ public final class NotchViewModel: ObservableObject {
             let isWithinNotchX = (distX <= (notchHalfWidth - 3.0))
             if !isAtTopEdge || !isWithinNotchX {
                 if hoverTask != nil && !isHovering {
-                    Task { @MainActor in
-                        self.cancelHoverTask()
+                    DispatchQueue.main.async { [weak self] in
+                        self?.cancelHoverTask()
                     }
                 }
                 return
             }
         }
 
-        Task { @MainActor in
-            self.checkMouseProximity(at: mouseLoc, distFromTop: distFromTop, distX: distX)
+        DispatchQueue.main.async { [weak self] in
+            self?.checkMouseProximity(at: mouseLoc, distFromTop: distFromTop, distX: distX)
         }
     }
 

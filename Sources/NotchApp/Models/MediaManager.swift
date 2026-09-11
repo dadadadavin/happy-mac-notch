@@ -74,21 +74,29 @@ public final class MediaManager: ObservableObject {
         }
     }
 
-    // High performance local progress ticker: advances by 0.15s in memory for ultra-smooth real-time lyrics sync
-    private func updateProgressTicker() {
+    // High performance local progress ticker: adaptive frequency, zero Task allocations, runs on RunLoop.main common mode
+    public func updateProgressTicker() {
         progressTicker?.invalidate()
         progressTicker = nil
 
-        if isPlaying {
-            progressTicker = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self = self, self.isPlaying else { return }
-                    if self.duration > 0 && self.currentTime < self.duration {
-                        self.currentTime += 0.15
-                        self.progress = min(1.0, self.currentTime / self.duration)
-                        LyricsManager.shared.updateTime(self.currentTime)
-                    }
-                }
+        guard isPlaying else { return }
+
+        // Adaptive interval: 0.15s when lyrics are enabled for vocal sync, 0.5s when disabled to conserve CPU
+        let interval: TimeInterval = LyricsManager.shared.isLyricsEnabled ? 0.15 : 0.50
+
+        let timer = Timer(timeInterval: interval, target: self, selector: #selector(onProgressTick), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        progressTicker = timer
+    }
+
+    @objc private func onProgressTick() {
+        guard isPlaying else { return }
+        let interval: TimeInterval = LyricsManager.shared.isLyricsEnabled ? 0.15 : 0.50
+        if duration > 0 && currentTime < duration {
+            currentTime += interval
+            progress = min(1.0, currentTime / duration)
+            if LyricsManager.shared.isLyricsEnabled {
+                LyricsManager.shared.updateTime(currentTime)
             }
         }
     }
