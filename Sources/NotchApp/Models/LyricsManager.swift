@@ -18,6 +18,7 @@ public final class LyricsManager: ObservableObject {
     public static let shared = LyricsManager()
 
     @Published public var currentLine: String = ""
+    @Published public var currentDisplayedText: String = ""
     @Published public var isLyricsEnabled: Bool = true
     @Published public var isFetching: Bool = false
     @Published public var hasLyrics: Bool = false
@@ -26,6 +27,14 @@ public final class LyricsManager: ObservableObject {
     private var lyricsCache: [String: [LyricLine]] = [:]
     private var lastRequestedKey: String = ""
     private var fetchTask: Task<Void, Never>?
+
+    // Lead offset (600ms) to eliminate audio buffer/Bluetooth latency and display lyrics on vocal onset
+    private let syncLeadOffset: Double = 0.60
+
+    // Phrase cycling for long lines so text never cuts off with "..."
+    private var currentChunks: [String] = []
+    private var currentChunkIndex: Int = 0
+    private var chunkTimer: Timer?
 
     private init() {
         if UserDefaults.standard.object(forKey: "enableLiveLyrics") != nil {
@@ -38,29 +47,122 @@ public final class LyricsManager: ObservableObject {
     public func toggleLyrics() {
         isLyricsEnabled.toggle()
         UserDefaults.standard.set(isLyricsEnabled, forKey: "enableLiveLyrics")
+        if !isLyricsEnabled {
+            currentDisplayedText = ""
+            chunkTimer?.invalidate()
+            chunkTimer = nil
+        } else {
+            updateTime(MediaManager.shared.currentTime)
+        }
     }
 
     public func updateTime(_ time: Double) {
         guard isLyricsEnabled, !syncedLines.isEmpty else {
             if !currentLine.isEmpty {
                 currentLine = ""
+                currentDisplayedText = ""
+                chunkTimer?.invalidate()
+                chunkTimer = nil
             }
             return
         }
 
-        // Match current line with 0.25s lookahead tolerance for smooth transition
-        if let active = syncedLines.last(where: { $0.time <= time + 0.25 }) {
+        // Apply lead offset to perfectly anticipate vocal timing
+        let effectiveTime = time + syncLeadOffset
+        if let active = syncedLines.last(where: { $0.time <= effectiveTime }) {
             let clean = active.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if currentLine != clean {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    self.currentLine = clean
-                }
+                self.currentLine = clean
+                self.prepareChunks(for: clean)
             }
         } else {
             if !currentLine.isEmpty {
                 currentLine = ""
+                currentDisplayedText = ""
+                chunkTimer?.invalidate()
+                chunkTimer = nil
             }
         }
+    }
+
+    private func prepareChunks(for text: String) {
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+
+        let chunks = splitIntoChunks(text, maxChars: 28)
+        self.currentChunks = chunks
+        self.currentChunkIndex = 0
+
+        if let first = chunks.first {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.currentDisplayedText = first
+            }
+        }
+
+        // If the line is long, cycle through natural chunks every 1.8s so all words fit without ellipsis "..."
+        if chunks.count > 1 {
+            chunkTimer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self = self, self.currentChunks.count > 1 else { return }
+                    self.currentChunkIndex = (self.currentChunkIndex + 1) % self.currentChunks.count
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        self.currentDisplayedText = self.currentChunks[self.currentChunkIndex]
+                    }
+                }
+            }
+        }
+    }
+
+    private func splitIntoChunks(_ text: String, maxChars: Int = 28) -> [String] {
+        if text.count <= maxChars {
+            return [text]
+        }
+
+        // 1. Try natural clause splitting (commas, semicolons, em-dashes)
+        let separators = CharacterSet(charactersIn: ",;—–")
+        let parts = text.components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        if parts.count > 1 {
+            var chunks: [String] = []
+            var current = ""
+            for p in parts {
+                if current.isEmpty {
+                    current = p
+                } else if current.count + p.count + 2 <= maxChars {
+                    current += ", " + p
+                } else {
+                    chunks.append(current)
+                    current = p
+                }
+            }
+            if !current.isEmpty {
+                chunks.append(current)
+            }
+            if chunks.allSatisfy({ $0.count <= maxChars + 8 }) {
+                return chunks
+            }
+        }
+
+        // 2. Word-boundary wrapping
+        let words = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        var chunks: [String] = []
+        var current = ""
+        for w in words {
+            if current.isEmpty {
+                current = w
+            } else if current.count + w.count + 1 <= maxChars {
+                current += " " + w
+            } else {
+                chunks.append(current)
+                current = w
+            }
+        }
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+        return chunks.isEmpty ? [text] : chunks
     }
 
     public func fetchLyrics(title: String, artist: String) {
@@ -71,6 +173,7 @@ public final class LyricsManager: ObservableObject {
         guard !cleanTitle.isEmpty, cleanTitle != "no media playing", cleanTitle != "nothing playing" else {
             self.syncedLines = []
             self.currentLine = ""
+            self.currentDisplayedText = ""
             self.hasLyrics = false
             return
         }
@@ -175,7 +278,6 @@ public final class LyricsManager: ObservableObject {
 
     private func cleanTrackTitle(_ raw: String) -> String {
         var s = raw
-        // Remove remaster / edition tags
         let patterns = [
             #"\s*-\s*Remaster(ed)?(\s*\d{4})?"#,
             #"\s*\([^\)]*Remaster[^\)]*\)"#,

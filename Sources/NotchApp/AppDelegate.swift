@@ -6,7 +6,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NotchWindow?
     private let viewModel = NotchViewModel()
 
-    private let maxWindowWidth: CGFloat = 740
+    private let maxWindowWidth: CGFloat = 860
     private let maxWindowHeight: CGFloat = 280
 
     public func applicationDidFinishLaunching(_ notification: Notification) {

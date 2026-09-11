@@ -58,59 +58,25 @@ public struct NotchContainerView: View {
                 }
                 .onDrop(of: [.fileURL, .url], delegate: NotchDropDelegate(vm: vm))
 
-                // 2. Floating Live Lyrics Pill (Appears in the blue menu bar space beside the closed notch)
-                if vm.state == .closed && lyrics.isLyricsEnabled && media.isPlaying && !lyrics.currentLine.isEmpty {
+                // 2. Floating Live Lyrics Pill (Positioned strictly to the LEFT of the closed notch, with 20pt clear margin)
+                if vm.state == .closed && lyrics.isLyricsEnabled && media.isPlaying && !lyrics.currentDisplayedText.isEmpty {
                     HStack(spacing: 0) {
-                        // Left half of screen space
                         Spacer()
 
-                        // Right half begins at exact screen center
-                        HStack(spacing: 0) {
-                            // Space past physical notch right wing
-                            Spacer()
-                                .frame(width: (vm.geometry.physicalSize.width / 2.0) + 8)
-
-                            // Translucent low-opacity pill with white text
-                            HStack(spacing: 6) {
-                                Image(systemName: "music.note")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(media.sourceApp == "Spotify" ? Color.green : Color.pink)
-
-                                Text(lyrics.currentLine)
-                                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            .padding(.horizontal, 10)
-                            .frame(height: 24)
-                            .frame(maxWidth: 240)
-                            .background(
-                                Capsule()
-                                    .fill(Color.black.opacity(0.42))
-                                    .background(.ultraThinMaterial, in: Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
-                                    )
-                            )
-                            .shadow(color: Color.black.opacity(0.25), radius: 4, y: 1)
-                            .contentShape(Capsule())
-                            .onTapGesture {
-                                vm.toggleOpen()
-                            }
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.92, anchor: .leading)),
-                                removal: .opacity
-                            ))
-
-                            Spacer()
+                        LiveLyricsPillView(lyrics: lyrics, media: media) {
+                            vm.toggleOpen()
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, (vm.geometry.physicalSize.width / 2.0) + 20)
                     }
-                    .frame(height: vm.geometry.physicalSize.height, alignment: .center)
+                    .frame(width: 430, height: vm.geometry.physicalSize.height)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .trailing)),
+                        removal: .opacity
+                    ))
                 }
             }
+            .frame(width: 860, alignment: .top)
 
             Spacer()
         }
@@ -278,6 +244,88 @@ private struct NotchDropDelegate: DropDelegate {
             vm.addDroppedFile(url)
         }
         return true
+    }
+}
+
+// MARK: - Live Lyrics Floating Pill Component
+public struct LiveLyricsPillView: View {
+    @ObservedObject var lyrics: LyricsManager
+    @ObservedObject var media: MediaManager
+    var onTap: () -> Void
+
+    public var body: some View {
+        HStack(spacing: 7) {
+            // Live animated equalizer wave bars
+            LiveLyricWave(
+                isPlaying: media.isPlaying,
+                color: media.sourceApp == "Spotify" ? Color.green : Color.pink
+            )
+
+            // The lyric text (with smooth vertical glide transition, no ellipsis)
+            Text(lyrics.currentDisplayedText)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .id(lyrics.currentDisplayedText)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(y: 4)),
+                    removal: .opacity.combined(with: .offset(y: -4))
+                ))
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 24)
+        .background(
+            Capsule()
+                .fill(Color.black.opacity(0.42))
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.20),
+                                    (media.sourceApp == "Spotify" ? Color.green : Color.pink).opacity(0.30)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            lineWidth: 0.6
+                        )
+                )
+        )
+        .shadow(color: (media.sourceApp == "Spotify" ? Color.green : Color.pink).opacity(0.25), radius: 6, y: 1)
+        .contentShape(Capsule())
+        .onTapGesture {
+            onTap()
+        }
+    }
+}
+
+// MARK: - Live Lyric Dancing Wave Icon
+public struct LiveLyricWave: View {
+    let isPlaying: Bool
+    let color: Color
+    @State private var phase: CGFloat = 0
+
+    public var body: some View {
+        HStack(spacing: 2) {
+            bar(delay: 0.0, minH: 3.5, maxH: 9.5)
+            bar(delay: 0.15, minH: 5.5, maxH: 13.0)
+            bar(delay: 0.3, minH: 3.5, maxH: 8.0)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bar(delay: Double, minH: CGFloat, maxH: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(color)
+            .frame(width: 2, height: isPlaying ? (phase == 1 ? maxH : minH) : minH)
+            .animation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true).delay(delay), value: phase)
     }
 }
 

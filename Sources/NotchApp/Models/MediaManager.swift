@@ -74,17 +74,17 @@ public final class MediaManager: ObservableObject {
         }
     }
 
-    // High performance local progress ticker: advances by 0.5s in memory for ultra-smooth lyrics sync
+    // High performance local progress ticker: advances by 0.15s in memory for ultra-smooth real-time lyrics sync
     private func updateProgressTicker() {
         progressTicker?.invalidate()
         progressTicker = nil
 
         if isPlaying {
-            progressTicker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            progressTicker = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self = self, self.isPlaying else { return }
                     if self.duration > 0 && self.currentTime < self.duration {
-                        self.currentTime += 0.5
+                        self.currentTime += 0.15
                         self.progress = min(1.0, self.currentTime / self.duration)
                         LyricsManager.shared.updateTime(self.currentTime)
                     }
