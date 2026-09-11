@@ -1,0 +1,23 @@
+# Build & Package Artifacts
+.build/
+.swiftpm/
+*.app/
+*.dSYM/
+
+# Xcode & Apple
+.DS_Store
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# References & Temporary
+references/
+scratch/
+*.log
+
+# Editor & OS
+.idea/
+.vscode/
+*.swp
+*~
