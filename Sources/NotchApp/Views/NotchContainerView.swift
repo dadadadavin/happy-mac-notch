@@ -158,8 +158,9 @@ public struct NotchContainerView: View {
                     .fill(Color.black)
                     .frame(width: vm.geometry.physicalSize.width, height: vm.geometry.physicalSize.height)
 
-                // Right Wing: Stats tab and Close button centered neatly with corner clearance
-                HStack(spacing: 12) {
+                // Right Wing: Mirror tab, Stats tab and Close button centered neatly with corner clearance
+                HStack(spacing: 8) {
+                    tabButton(for: .mirror)
                     tabButton(for: .stats)
 
                     Button(action: {
@@ -191,6 +192,8 @@ public struct NotchContainerView: View {
                     MusicWidget(vm: vm)
                 case .dropZone:
                     DropZoneWidget(vm: vm)
+                case .mirror:
+                    MirrorWidget(vm: vm)
                 case .stats:
                     SystemStatsWidget(vm: vm)
                 }

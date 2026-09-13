@@ -41,6 +41,8 @@ sleep 0.5
 # 4. Copy app bundle
 rm -rf "$DEST_APP"
 cp -R "$LOCAL_APP" "$DEST_APP"
+# Clean up local staging app so Spotlight only indexes the installed app in /Applications
+rm -rf "$LOCAL_APP"
 
 # 5. Clear quarantine attribute (Gatekeeper bypass)
 echo "🛡️  Clearing Gatekeeper quarantine flags..."
@@ -67,7 +69,10 @@ echo ""
 echo "2. Automation Permission (For Spotify / Apple Music controls):"
 echo "   Click 'OK' or 'Allow' when macOS prompts to control Spotify/Music."
 echo ""
-echo "3. Launch at Login (Optional):"
+echo "3. Camera Permission (For Quick Selfie & Mirror):"
+echo "   Click 'OK' or 'Allow' when switching to the Mirror tab."
+echo ""
+echo "4. Launch at Login (Optional):"
 echo "   Go to: System Settings > General > Login Items"
 echo "   Click '+' and add NotchApp from /Applications."
 echo ""

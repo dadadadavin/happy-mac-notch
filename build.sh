@@ -46,6 +46,8 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Happy Mac Notch displays track info and album art from Spotify and Apple Music in your notch.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Happy Mac Notch uses your FaceTime HD camera for the Quick Selfie mirror booth.</string>
 </dict>
 </plist>
 EOF

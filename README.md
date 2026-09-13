@@ -106,6 +106,11 @@ To fetch track metadata and control Spotify or Apple Music:
 - Click **OK** / **Allow**.
 - Verify anytime in **System Settings** → **Privacy & Security** → **Automation** → **NotchApp**.
 
+### 3. Camera Permission (For Quick Mirror & Selfie)
+Happy Mac Notch uses your built-in FaceTime HD camera for an instant mirror booth directly beneath your screen's notch:
+- When switching to the **Mirror** tab for the first time, macOS will ask for camera permission. Click **OK** / **Allow**.
+- **Privacy First**: The capture session and green hardware indicator LED turn ON **only** when the Mirror tab is actively open, and turn OFF immediately the moment you switch tabs or collapse the notch.
+
 ---
 
 ## 📖 How to Use
@@ -114,7 +119,9 @@ To fetch track metadata and control Spotify or Apple Music:
 | :--- | :--- |
 | **Expand Notch** | Push your mouse cursor to the physical top edge of the screen directly at the camera notch and pause for 0.1s. Alternatively, click on the notch. |
 | **Collapse Notch** | Move your cursor away from the card, or click the `✕` close button in the top-right header wing. |
-| **Switch Tabs** | Click `Music`, `Drop Shelf`, or `Stats` in the header bar flanking the notch. |
+| **Switch Tabs** | Click `Music`, `Drop Shelf`, `Mirror`, or `Stats` in the header bar flanking the notch. |
+| **Quick Mirror & Selfie** | Open the `Mirror` tab right under your FaceTime camera. Press `Space` or click **Take Selfie** (with optional 3s countdown). |
+| **Copy, Drag & Save Selfie** | After snapping: Click **Copy** (`Cmd+C`), click **Save** (`Cmd+S` to `~/Downloads`), or drag the photo thumbnail directly into Slack, Discord, Messages, or Finder. Press `Esc` to retake. |
 | **Toggle Live Lyrics** | Click the `[ 💬 Lyrics ]` button in the Music widget. A live lyric pill will float next to your notch whenever music plays with available lyrics. |
 | **Scrub Music** | Drag anywhere on the progress bar in the Music widget to seek through the track. |
 | **Park Files** | Drag any file from Finder or browser into the notch to hold it across desktop spaces. |

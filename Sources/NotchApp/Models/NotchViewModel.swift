@@ -13,6 +13,7 @@ public enum NotchState: Equatable {
 public enum ActiveTab: String, CaseIterable, Identifiable {
     case music = "Music"
     case dropZone = "Drop Shelf"
+    case mirror = "Mirror"
     case stats = "Stats"
 
     public var id: String { rawValue }
@@ -21,6 +22,7 @@ public enum ActiveTab: String, CaseIterable, Identifiable {
         switch self {
         case .music: return "music.note"
         case .dropZone: return "tray.and.arrow.down.fill"
+        case .mirror: return "camera.fill"
         case .stats: return "gauge.with.needle.fill"
         }
     }
@@ -28,9 +30,25 @@ public enum ActiveTab: String, CaseIterable, Identifiable {
 
 @MainActor
 public final class NotchViewModel: ObservableObject {
-    @Published public var state: NotchState = .closed
+    @Published public var state: NotchState = .closed {
+        didSet {
+            if state == .open && activeTab == .mirror {
+                CameraManager.shared.startSession()
+            } else if state != .open {
+                CameraManager.shared.stopSession()
+            }
+        }
+    }
     @Published public var isHovering: Bool = false
-    @Published public var activeTab: ActiveTab = .music
+    @Published public var activeTab: ActiveTab = .music {
+        didSet {
+            if activeTab == .mirror && state == .open {
+                CameraManager.shared.startSession()
+            } else {
+                CameraManager.shared.stopSession()
+            }
+        }
+    }
     @Published public var geometry: NotchGeometry
 
     // System stats
@@ -93,7 +111,7 @@ public final class NotchViewModel: ObservableObject {
         case .compact:
             return geometry.physicalSize.width + 120
         case .open:
-            return 585
+            return 615
         }
     }
 
@@ -147,9 +165,9 @@ public final class NotchViewModel: ObservableObject {
         let distX = abs(mouseLoc.x - cachedScreenMidX)
 
         if state == .open {
-            // Immediate collapse: as soon as cursor leaves the 585pt card boundaries (292.5pt half-width)
+            // Immediate collapse: as soon as cursor leaves the 615pt card boundaries (307.5pt half-width)
             // or drops below the card bottom (currentHeight + 6pt)
-            let isOutsideCard = (distX > 298) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
+            let isOutsideCard = (distX > 315) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isOutsideCard {
                 DispatchQueue.main.async { [weak self] in
                     self?.handleHover(false)
@@ -208,7 +226,7 @@ public final class NotchViewModel: ObservableObject {
                 cancelHoverTask()
             }
         } else if state == .open {
-            let isFarAway = (distX > 298) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
+            let isFarAway = (distX > 315) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isFarAway {
                 handleHover(false)
             }
