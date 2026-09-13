@@ -115,6 +115,10 @@ public final class NotchViewModel: ObservableObject {
         }
     }
 
+    public var isMirrorEnlarged: Bool {
+        activeTab == .mirror && CameraManager.shared.isEnlarged && state == .open
+    }
+
     public var currentHeight: CGFloat {
         switch state {
         case .closed:
@@ -122,7 +126,7 @@ public final class NotchViewModel: ObservableObject {
         case .compact:
             return geometry.physicalSize.height
         case .open:
-            return geometry.physicalSize.height + 122
+            return geometry.physicalSize.height + (isMirrorEnlarged ? 260 : 122)
         }
     }
 
@@ -256,6 +260,7 @@ public final class NotchViewModel: ObservableObject {
             withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.84)) {
                 self.state = .closed
             }
+            CameraManager.shared.stopSession()
         }
     }
 
@@ -264,6 +269,9 @@ public final class NotchViewModel: ObservableObject {
         withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.8)) {
             state = (state == .open) ? .closed : .open
             isHovering = (state == .open)
+        }
+        if state == .closed {
+            CameraManager.shared.stopSession()
         }
     }
 

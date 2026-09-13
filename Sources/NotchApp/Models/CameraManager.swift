@@ -30,6 +30,15 @@ final class CameraSessionController: @unchecked Sendable {
             if self.session.isRunning {
                 self.session.stopRunning()
             }
+            self.session.beginConfiguration()
+            for input in self.session.inputs {
+                self.session.removeInput(input)
+            }
+            for output in self.session.outputs {
+                self.session.removeOutput(output)
+            }
+            self.session.commitConfiguration()
+            self.isConfigured = false
             onStatus(false)
         }
     }
@@ -108,6 +117,7 @@ public final class CameraManager: ObservableObject {
     @Published public var isFlashing: Bool = false
     @Published public var isCapturing: Bool = false
     @Published public var useTimer: Bool = false
+    @Published public var isEnlarged: Bool = false
     @Published public var errorMessage: String? = nil
 
     private let controller = CameraSessionController()
@@ -163,6 +173,7 @@ public final class CameraManager: ObservableObject {
     }
 
     public func stopSession() {
+        self.isEnlarged = false
         controller.stop { [weak self] running in
             Task { @MainActor in
                 guard let self = self else { return }

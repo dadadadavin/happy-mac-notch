@@ -34,6 +34,11 @@ public struct CameraPreviewView: NSViewRepresentable {
             conn.isVideoMirrored = true
         }
     }
+
+    public static func dismantleNSView(_ nsView: CameraPreviewNSView, coordinator: ()) {
+        nsView.previewLayer?.removeFromSuperlayer()
+        nsView.previewLayer = nil
+    }
 }
 
 public final class CameraPreviewNSView: NSView {
@@ -41,6 +46,9 @@ public final class CameraPreviewNSView: NSView {
 
     public override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         previewLayer?.frame = bounds
+        CATransaction.commit()
     }
 }
