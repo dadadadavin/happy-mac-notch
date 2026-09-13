@@ -59,75 +59,76 @@ public struct MirrorWidget: View {
     private var compactLiveView: some View {
         HStack(spacing: 14) {
             // Camera Preview (Click to Enlarge)
-            ZStack(alignment: .bottomTrailing) {
-                CameraPreviewView(session: camera.captureSession)
-                    .frame(width: 146, height: 76)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(isPreviewHovered ? Color.white.opacity(0.4) : Color.white.opacity(0.15), lineWidth: 1)
-                    )
-                    .accessibilityLabel("Quick Mirror Camera Preview")
-
-                // Top indicator: "Look up at Notch"
-                VStack {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 8, weight: .bold))
-                        Text("Look at Lens")
-                            .font(.system(size: 8, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.black.opacity(0.6)))
-                    .padding(.top, 4)
-
-                    Spacer()
-                }
-
-                // Expand button badge in bottom-right corner
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 8, weight: .bold))
-                    Text("Enlarge")
-                        .font(.system(size: 8, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(isPreviewHovered ? 1.0 : 0.75))
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color.black.opacity(0.65)))
-                .padding(4)
-
-                // Countdown overlay if active
-                if camera.isCountingDown {
-                    ZStack {
-                        Color.black.opacity(0.4)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                        Text("\(camera.countdownRemaining)")
-                            .font(.system(size: 34, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white)
-                            .shadow(color: .cyan.opacity(0.8), radius: 10)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
-
-                // Shutter flash effect
-                if camera.isFlashing {
-                    Color.white
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .transition(.opacity)
-                }
-            }
-            .frame(width: 146, height: 76)
-            .contentShape(Rectangle())
-            .onHover { isPreviewHovered = $0 }
-            .onTapGesture {
+            Button(action: {
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                     camera.isEnlarged = true
                 }
+            }) {
+                ZStack(alignment: .bottomTrailing) {
+                    CameraPreviewView(session: camera.captureSession)
+                        .frame(width: 146, height: 76)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(isPreviewHovered ? Color.white.opacity(0.4) : Color.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .accessibilityLabel("Quick Mirror Camera Preview")
+
+                    // Top indicator: "Look up at Notch"
+                    VStack {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 8, weight: .bold))
+                            Text("Look at Lens")
+                                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.black.opacity(0.6)))
+                        .padding(.top, 4)
+
+                        Spacer()
+                    }
+
+                    // Expand button badge in bottom-right corner
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 8, weight: .bold))
+                        Text("Enlarge")
+                            .font(.system(size: 8, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white.opacity(isPreviewHovered ? 1.0 : 0.75))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.black.opacity(0.65)))
+                    .padding(4)
+
+                    // Countdown overlay if active
+                    if camera.isCountingDown {
+                        ZStack {
+                            Color.black.opacity(0.4)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                            Text("\(camera.countdownRemaining)")
+                                .font(.system(size: 34, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white)
+                                .shadow(color: .cyan.opacity(0.8), radius: 10)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+
+                    // Shutter flash effect
+                    if camera.isFlashing {
+                        Color.white
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .transition(.opacity)
+                    }
+                }
+                .frame(width: 146, height: 76)
             }
+            .buttonStyle(.plain)
+            .onHover { isPreviewHovered = $0 }
             .help("Click preview to enlarge mirror")
 
             // Right side: controls & actions
@@ -234,15 +235,25 @@ public struct MirrorWidget: View {
         VStack(spacing: 8) {
             // Big Viewfinder directly centered beneath the hardware notch lens
             ZStack(alignment: .topTrailing) {
-                CameraPreviewView(session: camera.captureSession)
-                    .frame(width: 440, height: 155)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
-                    )
+                // Viewfinder preview as a plain button to click-to-shrink
+                Button(action: {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        camera.isEnlarged = false
+                    }
+                }) {
+                    CameraPreviewView(session: camera.captureSession)
+                        .frame(width: 440, height: 155)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(isPreviewHovered ? Color.white.opacity(0.35) : Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .onHover { isPreviewHovered = $0 }
+                .help("Click preview to shrink back to compact mirror")
 
-                // Top Look at Lens indicator
+                // Top Look at Lens indicator (allowsHitTesting false so clicks pass through to preview)
                 HStack {
                     Spacer()
                     HStack(spacing: 4) {
@@ -258,6 +269,7 @@ public struct MirrorWidget: View {
                     .padding(.top, 6)
                     Spacer()
                 }
+                .allowsHitTesting(false)
 
                 // Top-right shrink button
                 Button(action: {
@@ -278,7 +290,7 @@ public struct MirrorWidget: View {
                     .padding(6)
                 }
                 .buttonStyle(.plain)
-                .help("Click to shrink back to compact mirror (or click preview)")
+                .help("Click to shrink back to compact mirror")
 
                 // Countdown overlay if active
                 if camera.isCountingDown {
@@ -292,6 +304,7 @@ public struct MirrorWidget: View {
                             .shadow(color: .cyan.opacity(0.9), radius: 14)
                             .transition(.scale.combined(with: .opacity))
                     }
+                    .allowsHitTesting(false)
                 }
 
                 // Shutter flash effect
@@ -299,16 +312,10 @@ public struct MirrorWidget: View {
                     Color.white
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(width: 440, height: 155)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                    camera.isEnlarged = false
-                }
-            }
-            .help("Click to shrink back to compact view")
 
             // Bottom controls toolbar
             HStack(spacing: 14) {
@@ -517,7 +524,7 @@ public struct MirrorWidget: View {
     // MARK: - Enlarged Captured Photo Preview
     private func enlargedCapturedView(image: NSImage) -> some View {
         VStack(spacing: 8) {
-            ZStack(alignment: .bottomTrailing) {
+            ZStack(alignment: .topTrailing) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -528,17 +535,46 @@ public struct MirrorWidget: View {
                             .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
                     )
 
-                HStack(spacing: 4) {
-                    Image(systemName: "hand.draw.fill")
-                        .font(.system(size: 9))
-                    Text("Drag out anywhere")
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                // Top-right compact button
+                Button(action: {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        camera.isEnlarged = false
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("Compact")
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.black.opacity(0.7)))
+                    .padding(6)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(Color.black.opacity(0.75)))
-                .padding(8)
+                .buttonStyle(.plain)
+                .help("Click to shrink back to compact mirror")
+
+                // Drag indicator badge
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 4) {
+                            Image(systemName: "hand.draw.fill")
+                                .font(.system(size: 9))
+                            Text("Drag out anywhere")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.black.opacity(0.75)))
+                        .padding(8)
+                    }
+                }
+                .allowsHitTesting(false)
             }
             .frame(width: 440, height: 155)
             .onDrag {

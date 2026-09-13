@@ -54,7 +54,9 @@ public struct NotchContainerView: View {
                     }
                 }
                 .onTapGesture {
-                    vm.toggleOpen()
+                    if vm.state != .open {
+                        vm.toggleOpen()
+                    }
                 }
                 .onDrop(of: [.fileURL, .url], delegate: NotchDropDelegate(vm: vm))
 

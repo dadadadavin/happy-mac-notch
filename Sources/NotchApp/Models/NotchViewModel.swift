@@ -83,6 +83,8 @@ public final class NotchViewModel: ObservableObject {
     private var cachedScreenMidX: CGFloat = 720
     private var lastProximityCheckTime: Double = 0
 
+    private var cancellables = Set<AnyCancellable>()
+
     public init() {
         let initialScreen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first ?? NSScreen.main
         self.geometry = NotchGeometry.current(for: initialScreen)
@@ -92,6 +94,16 @@ public final class NotchViewModel: ObservableObject {
         }
         self.updateBatteryStatus()
         self.startMouseProximityMonitoring()
+
+        CameraManager.shared.$isEnlarged
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                    self?.objectWillChange.send()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     public func updateGeometry(for screen: NSScreen? = nil) {
@@ -169,8 +181,11 @@ public final class NotchViewModel: ObservableObject {
         let distX = abs(mouseLoc.x - cachedScreenMidX)
 
         if state == .open {
-            // Immediate collapse: as soon as cursor leaves the 615pt card boundaries (307.5pt half-width)
-            // or drops below the card bottom (currentHeight + 6pt)
+            // When mirror is enlarged, keep it open and do NOT auto-collapse on hover
+            if isMirrorEnlarged {
+                return
+            }
+
             let isOutsideCard = (distX > 315) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isOutsideCard {
                 DispatchQueue.main.async { [weak self] in
@@ -230,6 +245,9 @@ public final class NotchViewModel: ObservableObject {
                 cancelHoverTask()
             }
         } else if state == .open {
+            if isMirrorEnlarged {
+                return
+            }
             let isFarAway = (distX > 315) || (distFromTop > (currentHeight + 6)) || (distFromTop < -10)
             if isFarAway {
                 handleHover(false)
@@ -254,6 +272,11 @@ public final class NotchViewModel: ObservableObject {
                 self.state = .open
             }
         } else {
+            // Keep enlarged mirror pinned open, do not auto-close on mouse exit
+            if isMirrorEnlarged {
+                return
+            }
+
             isHovering = false
 
             // Instant pop back in (zero delay!)
