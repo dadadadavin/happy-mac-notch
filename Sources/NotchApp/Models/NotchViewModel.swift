@@ -86,7 +86,7 @@ public final class NotchViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     public init() {
-        let initialScreen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first ?? NSScreen.main
+        let initialScreen = NotchGeometry.targetScreen()
         self.geometry = NotchGeometry.current(for: initialScreen)
         if let s = initialScreen {
             self.cachedScreenTop = s.frame.maxY
@@ -107,7 +107,7 @@ public final class NotchViewModel: ObservableObject {
     }
 
     public func updateGeometry(for screen: NSScreen? = nil) {
-        let targetScreen = screen ?? NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first ?? NSScreen.main
+        let targetScreen = screen ?? NotchGeometry.targetScreen()
         self.geometry = NotchGeometry.current(for: targetScreen)
         if let s = targetScreen {
             self.cachedScreenTop = s.frame.maxY

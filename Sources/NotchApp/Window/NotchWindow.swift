@@ -46,4 +46,18 @@ public final class NotchWindow: NSPanel {
     public override var canBecomeMain: Bool {
         false
     }
+
+    // Prevent AppKit from ever clamping or shifting the notch panel during fullscreen or menu bar transitions
+    public override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        return frameRect
+    }
+
+    public func pinToTop(of screen: NSScreen, width: CGFloat, height: CGFloat) {
+        let x = screen.frame.midX - (width / 2)
+        let y = screen.frame.maxY - height
+        let targetFrame = NSRect(x: x, y: y, width: width, height: height)
+        if self.frame != targetFrame {
+            self.setFrame(targetFrame, display: true)
+        }
+    }
 }

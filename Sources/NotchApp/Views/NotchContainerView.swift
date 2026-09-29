@@ -80,9 +80,9 @@ public struct NotchContainerView: View {
             }
             .frame(width: 860, alignment: .top)
 
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(width: 860, height: 380, alignment: .top)
         .ignoresSafeArea()
     }
 
