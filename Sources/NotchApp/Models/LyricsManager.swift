@@ -50,40 +50,60 @@ public final class LyricsManager: ObservableObject {
 
     public func nudgeEarlier() {
         userOffset += 0.50
-        updateTime(MediaManager.shared.currentTime)
+        updateTime(MediaManager.shared.currentTime, isSeeking: true)
     }
 
     public func nudgeLater() {
         userOffset -= 0.50
-        updateTime(MediaManager.shared.currentTime)
+        updateTime(MediaManager.shared.currentTime, isSeeking: true)
     }
 
     public func resetOffset() {
         userOffset = 0.0
-        updateTime(MediaManager.shared.currentTime)
+        updateTime(MediaManager.shared.currentTime, isSeeking: true)
     }
 
     public func toggleLyrics() {
         isLyricsEnabled.toggle()
         UserDefaults.standard.set(isLyricsEnabled, forKey: "enableLiveLyrics")
         if !isLyricsEnabled {
-            currentLine = ""
-            currentDisplayedText = ""
-            lastActiveIndex = -1
-            chunkTransitionTask?.cancel()
-            chunkTransitionTask = nil
+            clear()
         } else {
             lastActiveIndex = -1
-            updateTime(MediaManager.shared.currentTime)
+            updateTime(MediaManager.shared.currentTime, isSeeking: true)
         }
         MediaManager.shared.updateProgressTicker()
     }
 
-    public func updateTime(_ time: Double) {
+    /// Completely clears the current lyrics state so old songs never linger or flash
+    public func clear() {
+        fetchTask?.cancel()
+        fetchTask = nil
+        chunkTransitionTask?.cancel()
+        chunkTransitionTask = nil
+        currentLine = ""
+        currentDisplayedText = ""
+        syncedLines = []
+        lastActiveIndex = -1
+        hasLyrics = false
+        isFetching = false
+    }
+
+    /// Explicitly jump to a new timestamp (used when user scrubs or skips to middle)
+    public func seekTo(_ time: Double) {
+        chunkTransitionTask?.cancel()
+        chunkTransitionTask = nil
+        lastActiveIndex = -1
+        updateTime(time, isSeeking: true)
+    }
+
+    public func updateTime(_ time: Double, isSeeking: Bool = false) {
         guard isLyricsEnabled, !syncedLines.isEmpty else {
-            if !currentLine.isEmpty {
+            if !currentDisplayedText.isEmpty {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    currentDisplayedText = ""
+                }
                 currentLine = ""
-                currentDisplayedText = ""
                 lastActiveIndex = -1
                 chunkTransitionTask?.cancel()
                 chunkTransitionTask = nil
@@ -97,9 +117,11 @@ public final class LyricsManager: ObservableObject {
         // Find current matching line index
         guard let index = syncedLines.lastIndex(where: { $0.time <= effectiveTime }) else {
             // Before first lyric
-            if !currentLine.isEmpty {
+            if !currentDisplayedText.isEmpty {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    currentDisplayedText = ""
+                }
                 currentLine = ""
-                currentDisplayedText = ""
                 lastActiveIndex = -1
                 chunkTransitionTask?.cancel()
                 chunkTransitionTask = nil
@@ -109,13 +131,27 @@ public final class LyricsManager: ObservableObject {
 
         let active = syncedLines[index]
 
-        // If the same line is already active, do not re-trigger or restart animations
-        if index == lastActiveIndex && currentLine == active.text {
+        // Instrumental Gap Detection: if we are past the current line's vocal duration, hide the lyric
+        if effectiveTime > active.endTime {
+            if !currentDisplayedText.isEmpty {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    self.currentDisplayedText = ""
+                }
+                self.currentLine = ""
+                self.lastActiveIndex = -1
+                chunkTransitionTask?.cancel()
+                chunkTransitionTask = nil
+            }
             return
         }
 
-        // Jitter protection: reject small backward time slips (< 3.0s) from AppleScript polling
-        if index < lastActiveIndex && abs(effectiveTime - syncedLines[lastActiveIndex].time) < 3.0 {
+        // If the same line is already active, do not re-trigger or restart animations (unless explicitly seeking)
+        if !isSeeking && index == lastActiveIndex && currentLine == active.text {
+            return
+        }
+
+        // Jitter protection: reject small backward time slips (< 1.0s) from AppleScript polling unless seeking
+        if !isSeeking && index < lastActiveIndex && abs(effectiveTime - syncedLines[lastActiveIndex].time) < 1.0 {
             return
         }
 
@@ -129,40 +165,40 @@ public final class LyricsManager: ObservableObject {
         chunkTransitionTask = nil
 
         let cleanText = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let chunks = splitIntoChunks(cleanText, maxChars: 44)
+        let chunks = splitIntoChunks(cleanText, maxChars: 42)
 
         if chunks.count <= 1 {
             // Line fits cleanly without splitting
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 self.currentDisplayedText = cleanText
             }
             return
         }
 
         // Long line with multiple phrases: advance once to the second phrase (NEVER loop back!)
-        let totalDuration = max(2.0, line.endTime - line.time)
+        let totalDuration = max(2.5, line.endTime - line.time)
         let elapsedOnThisLine = max(0.0, currentTime - line.time)
         let part1Duration = totalDuration * 0.48
 
         if elapsedOnThisLine >= part1Duration {
-            // Already past part 1, show part 2
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            // Already past part 1, show part 2 immediately
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 self.currentDisplayedText = chunks.last ?? cleanText
             }
         } else {
             // Show part 1
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 self.currentDisplayedText = chunks.first ?? cleanText
             }
 
-            // Schedule a one-time forward advance to part 2 (never loop back to part 1!)
-            let waitTime = max(0.8, part1Duration - elapsedOnThisLine)
+            // Schedule a one-time forward advance to part 2
+            let waitTime = max(0.5, part1Duration - elapsedOnThisLine)
             chunkTransitionTask = Task {
                 try? await Task.sleep(for: .milliseconds(Int(waitTime * 1000)))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard self.currentLine == line.text else { return }
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                         self.currentDisplayedText = chunks.last ?? cleanText
                     }
                 }
@@ -170,7 +206,7 @@ public final class LyricsManager: ObservableObject {
         }
     }
 
-    private func splitIntoChunks(_ text: String, maxChars: Int = 44) -> [String] {
+    private func splitIntoChunks(_ text: String, maxChars: Int = 42) -> [String] {
         if text.count <= maxChars {
             return [text]
         }
@@ -182,7 +218,6 @@ public final class LyricsManager: ObservableObject {
             .filter { !$0.isEmpty }
 
         if parts.count >= 2 {
-            // Split into roughly two equal halves
             let mid = parts.count / 2
             let firstHalf = parts[0..<mid].joined(separator: ", ")
             let secondHalf = parts[mid...].joined(separator: ", ")
@@ -208,21 +243,27 @@ public final class LyricsManager: ObservableObject {
         let cacheKey = "\(cleanTitle.lowercased())|\(cleanArtist.lowercased())|\(roundedDur)"
 
         guard !cleanTitle.isEmpty, cleanTitle != "no media playing", cleanTitle != "nothing playing" else {
-            self.syncedLines = []
-            self.currentLine = ""
-            self.currentDisplayedText = ""
-            self.hasLyrics = false
-            self.lastActiveIndex = -1
-            self.userOffset = 0.0
+            clear()
             return
         }
 
-        if let cached = lyricsCache[cacheKey] {
+        // If switching to a new song, immediately clear old song's display so it never flashes!
+        if lastRequestedKey != cacheKey {
+            chunkTransitionTask?.cancel()
+            chunkTransitionTask = nil
+            currentLine = ""
+            currentDisplayedText = ""
+            syncedLines = []
+            hasLyrics = false
+            lastActiveIndex = -1
+        }
+
+        if let cached = lyricsCache[cacheKey], !cached.isEmpty {
             self.syncedLines = cached
-            self.hasLyrics = !cached.isEmpty
+            self.hasLyrics = true
             self.lastActiveIndex = -1
             self.userOffset = 0.0
-            self.updateTime(MediaManager.shared.currentTime)
+            self.seekTo(MediaManager.shared.currentTime)
             return
         }
 
@@ -232,27 +273,78 @@ public final class LyricsManager: ObservableObject {
         fetchTask?.cancel()
         fetchTask = Task {
             self.isFetching = true
-            let lines = await self.fetchBestLyrics(title: cleanTitle, artist: cleanArtist, album: album, duration: duration)
+            let lines = await self.fetchBestLyrics(
+                title: cleanTitle,
+                rawTitle: title,
+                artist: cleanArtist,
+                rawArtist: artist,
+                album: album,
+                duration: duration
+            )
             guard !Task.isCancelled else { return }
 
-            self.lyricsCache[cacheKey] = lines
-            self.syncedLines = lines
-            self.hasLyrics = !lines.isEmpty
             self.isFetching = false
-            self.lastActiveIndex = -1
-            self.userOffset = 0.0
-            self.updateTime(MediaManager.shared.currentTime)
+            if !lines.isEmpty {
+                self.lyricsCache[cacheKey] = lines
+                self.syncedLines = lines
+                self.hasLyrics = true
+                self.lastActiveIndex = -1
+                self.userOffset = 0.0
+                self.seekTo(MediaManager.shared.currentTime)
+            } else {
+                self.syncedLines = []
+                self.hasLyrics = false
+            }
         }
     }
 
-    private func fetchBestLyrics(title: String, artist: String, album: String, duration: Double) async -> [LyricLine] {
-        // 1. Try exact match query via /api/get with track duration
-        if let exactLines = await tryExactGet(title: title, artist: artist, album: album, duration: duration), !exactLines.isEmpty {
-            return exactLines
+    // 6-Tier Cascade Search: Ensures maximum hit-rate across all naming variations and collaborations
+    private func fetchBestLyrics(
+        title: String,
+        rawTitle: String,
+        artist: String,
+        rawArtist: String,
+        album: String,
+        duration: Double
+    ) async -> [LyricLine] {
+        // Tier 1: Exact match query with cleaned title & artist
+        if let lines = await tryExactGet(title: title, artist: artist, album: album, duration: duration), !lines.isEmpty {
+            return lines
         }
 
-        // 2. Fallback to /api/search with duration-based closest release selection
-        return await performSearchWithDurationMatching(title: title, artist: artist, targetDuration: duration)
+        // Tier 2: Exact match query with raw title & raw artist (if different)
+        if (title != rawTitle || artist != rawArtist),
+           let lines = await tryExactGet(title: rawTitle, artist: rawArtist, album: album, duration: duration), !lines.isEmpty {
+            return lines
+        }
+
+        // Tier 3: Search with track_name and artist_name query parameters
+        if let lines = await trySearchFields(title: title, artist: artist, targetDuration: duration), !lines.isEmpty {
+            return lines
+        }
+
+        // Tier 4: Full-text search with title and artist (e.g. "APT. Rose Bruno Mars")
+        let fullQuery = "\(title) \(artist)".trimmingCharacters(in: .whitespaces)
+        if let lines = await trySearchFullText(query: fullQuery, targetDuration: duration), !lines.isEmpty {
+            return lines
+        }
+
+        // Tier 5: Full-text search with title only
+        if let lines = await trySearchFullText(query: title, targetDuration: duration), !lines.isEmpty {
+            return lines
+        }
+
+        // Tier 6: If title has a hyphen (e.g. "Song - Subtitle"), search with prefix before hyphen
+        if title.contains(" - ") {
+            let prefix = title.components(separatedBy: " - ")[0].trimmingCharacters(in: .whitespaces)
+            if prefix.count >= 2 {
+                if let lines = await trySearchFullText(query: "\(prefix) \(artist)", targetDuration: duration), !lines.isEmpty {
+                    return lines
+                }
+            }
+        }
+
+        return []
     }
 
     private func tryExactGet(title: String, artist: String, album: String, duration: Double) async -> [LyricLine]? {
@@ -271,7 +363,7 @@ public final class LyricsManager: ObservableObject {
 
         var request = URLRequest(url: url)
         request.setValue("HappyMacNotch/1.0", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 5.0
+        request.timeoutInterval = 4.0
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -289,22 +381,35 @@ public final class LyricsManager: ObservableObject {
         return nil
     }
 
-    private func performSearchWithDurationMatching(title: String, artist: String, targetDuration: Double) async -> [LyricLine] {
+    private func trySearchFields(title: String, artist: String, targetDuration: Double) async -> [LyricLine]? {
         var components = URLComponents(string: "https://lrclib.net/api/search")
         var queryItems = [URLQueryItem(name: "track_name", value: title)]
         if !artist.isEmpty && artist != "Spotify / Apple Music" && artist != "System" {
             queryItems.append(URLQueryItem(name: "artist_name", value: artist))
         }
         components?.queryItems = queryItems
-        guard let url = components?.url else { return [] }
+        guard let url = components?.url else { return nil }
 
+        return await executeSearchRequest(url: url, targetDuration: targetDuration)
+    }
+
+    private func trySearchFullText(query: String, targetDuration: Double) async -> [LyricLine]? {
+        guard !query.isEmpty else { return nil }
+        var components = URLComponents(string: "https://lrclib.net/api/search")
+        components?.queryItems = [URLQueryItem(name: "q", value: query)]
+        guard let url = components?.url else { return nil }
+
+        return await executeSearchRequest(url: url, targetDuration: targetDuration)
+    }
+
+    private func executeSearchRequest(url: URL, targetDuration: Double) async -> [LyricLine]? {
         var request = URLRequest(url: url)
         request.setValue("HappyMacNotch/1.0", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 6.0
+        request.timeoutInterval = 4.5
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
 
             struct SearchItem: Decodable {
                 let syncedLyrics: String?
@@ -313,27 +418,28 @@ public final class LyricsManager: ObservableObject {
 
             let items = try JSONDecoder().decode([SearchItem].self, from: data)
             let syncedItems = items.filter { ($0.syncedLyrics ?? "").count > 10 }
-            guard !syncedItems.isEmpty else { return [] }
+            guard !syncedItems.isEmpty else { return nil }
 
             if targetDuration > 10 {
-                // Find candidate with smallest duration variance to avoid radio edits or live extensions!
                 let sortedByDuration = syncedItems.sorted { a, b in
                     let diffA = abs((a.duration ?? targetDuration) - targetDuration)
                     let diffB = abs((b.duration ?? targetDuration) - targetDuration)
                     return diffA < diffB
                 }
                 if let best = sortedByDuration.first, let synced = best.syncedLyrics {
-                    return parseLRC(synced)
+                    let lines = parseLRC(synced)
+                    if !lines.isEmpty { return lines }
                 }
             }
 
             if let first = syncedItems.first, let synced = first.syncedLyrics {
-                return parseLRC(synced)
+                let lines = parseLRC(synced)
+                if !lines.isEmpty { return lines }
             }
         } catch {
-            return []
+            return nil
         }
-        return []
+        return nil
     }
 
     private func parseLRC(_ lrc: String) -> [LyricLine] {
@@ -389,7 +495,11 @@ public final class LyricsManager: ObservableObject {
         for i in 0..<sorted.count {
             let item = sorted[i]
             let nextTime = (i + 1 < sorted.count) ? sorted[i + 1].time : (item.time + 6.0)
-            result.append(LyricLine(time: item.time, endTime: nextTime, text: item.text))
+            // Vocal duration cap: lyrics naturally last ~3.0 - 7.5 seconds.
+            // If nextTime is much later (instrumental solo), cap the endTime so the lyric doesn't linger through the solo!
+            let maxSingingDuration = min(7.5, max(3.0, Double(item.text.count) * 0.16 + 2.0))
+            let calculatedEndTime = min(nextTime, item.time + maxSingingDuration)
+            result.append(LyricLine(time: item.time, endTime: calculatedEndTime, text: item.text))
         }
         return result
     }
@@ -397,13 +507,24 @@ public final class LyricsManager: ObservableObject {
     private func cleanTrackTitle(_ raw: String) -> String {
         var s = raw
         let patterns = [
-            #"\s*-\s*Remaster(ed)?(\s*\d{4})?"#,
-            #"\s*\([^\)]*Remaster[^\)]*\)"#,
-            #"\s*\[[^\]]*Remaster[^\]]*\]"#,
-            #"\s*-\s*Deluxe(\s*Edition)?"#,
-            #"\s*\([^\)]*feat\.[^\)]*\)"#,
-            #"\s*\[[^\]]*feat\.[^\)]*\]"#,
-            #"\s*-\s*Live.*$"#
+            // Parentheses/bracketed collaborations
+            #"\s*[\(\[](?:feat\.?|ft\.?|with)\s+[^\)\]]+[\)\]]"#,
+            #"\s*-\s*(?:feat\.?|ft\.?|with)\s+.*$"#,
+            #"\s+(?:feat\.?|ft\.)\s+.*$"#,
+            // Remaster tags
+            #"\s*-\s*\d{4}\s*Remaster.*$"#,
+            #"\s*-\s*Remaster(ed)?(\s*\d{4})?.*$"#,
+            #"\s*[\(\[][^\)\]]*Remaster[^\)\]]*[\)\]]"#,
+            // Editions & versions
+            #"\s*-\s*Deluxe(\s*Edition)?.*$"#,
+            #"\s*-\s*(?:Radio|Single|Album|Original|Club|Extended)\s*(?:Edit|Version|Mix).*$"#,
+            #"\s*[\(\[](?:Radio|Single|Album|Original|Club|Extended)\s*(?:Edit|Version|Mix)[\)\]]"#,
+            #"\s*[\(\[](?:Bonus Track|Anniversary Edition|Special Edition)[\)\]]"#,
+            // Live, Video & Soundtrack tags
+            #"\s*-\s*Live.*$"#,
+            #"\s*[\(\[](?:Official\s*)?(?:Music\s*)?(?:Video|Audio|Visualizer|Lyric\s*Video)[\)\]]"#,
+            #"\s*[\(\[](?:From\s+[^\)\]]+)[\)\]]"#,
+            #"\s*-\s*(?:From\s+[^\-]+)$"#
         ]
         for pat in patterns {
             if let regex = try? NSRegularExpression(pattern: pat, options: .caseInsensitive) {
@@ -420,6 +541,9 @@ public final class LyricsManager: ObservableObject {
         }
         if let firstSemi = s.firstIndex(of: ";") {
             s = String(s[..<firstSemi])
+        }
+        if let firstAmp = s.range(of: " & ") {
+            s = String(s[..<firstAmp.lowerBound])
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }

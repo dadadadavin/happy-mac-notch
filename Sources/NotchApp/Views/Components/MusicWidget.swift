@@ -7,6 +7,8 @@ public struct MusicWidget: View {
     @State private var isPlayHovered: Bool = false
     @State private var isPrevHovered: Bool = false
     @State private var isNextHovered: Bool = false
+    @State private var isDraggingScrubber: Bool = false
+    @State private var dragProgress: Double = 0.0
 
     public init(vm: NotchViewModel) {
         self.vm = vm
@@ -134,6 +136,7 @@ public struct MusicWidget: View {
                 // ROW 3: Interactive Progress Scrubber with Timestamps
                 VStack(spacing: 3) {
                     GeometryReader { geo in
+                        let currentProgress = isDraggingScrubber ? dragProgress : media.progress
                         ZStack(alignment: .leading) {
                             Capsule()
                                 .fill(Color.white.opacity(0.14))
@@ -141,21 +144,29 @@ public struct MusicWidget: View {
 
                             Capsule()
                                 .fill(Color.white)
-                                .frame(width: max(0, geo.size.width * CGFloat(media.progress)), height: 3.5)
+                                .frame(width: max(0, geo.size.width * CGFloat(currentProgress)), height: 3.5)
                         }
                         .contentShape(Rectangle())
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { value in
+                                    isDraggingScrubber = true
+                                    let pct = max(0.0, min(1.0, Double(value.location.x / geo.size.width)))
+                                    dragProgress = pct
+                                }
+                                .onEnded { value in
                                     let pct = max(0.0, min(1.0, Double(value.location.x / geo.size.width)))
                                     media.seek(to: pct)
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        isDraggingScrubber = false
+                                    }
                                 }
                         )
                     }
                     .frame(height: 5)
 
                     HStack {
-                        Text(media.formatTime(media.currentTime))
+                        Text(media.formatTime(isDraggingScrubber ? media.duration * dragProgress : media.currentTime))
                             .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.55))
 

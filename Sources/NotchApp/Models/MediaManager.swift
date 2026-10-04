@@ -18,6 +18,8 @@ public final class MediaManager: ObservableObject {
     @Published public var sourceApp: String = "System"
 
     private var progressTicker: Timer?
+    private var tickCount: Int = 0
+    private var isSyncingPosition: Bool = false
     private var lastArtworkURL: String = ""
     private var hasAppleScriptPermissionDenied: Bool = false
     private let artworkCache = NSCache<NSString, NSImage>()
@@ -78,6 +80,7 @@ public final class MediaManager: ObservableObject {
     public func updateProgressTicker() {
         progressTicker?.invalidate()
         progressTicker = nil
+        tickCount = 0
 
         guard isPlaying else { return }
 
@@ -94,9 +97,78 @@ public final class MediaManager: ObservableObject {
         let interval: TimeInterval = LyricsManager.shared.isLyricsEnabled ? 0.15 : 0.50
         if duration > 0 && currentTime < duration {
             currentTime += interval
-            progress = min(1.0, currentTime / duration)
+            progress = min(1.0, max(0.0, currentTime / duration))
             if LyricsManager.shared.isLyricsEnabled {
                 LyricsManager.shared.updateTime(currentTime)
+            }
+        }
+
+        tickCount += 1
+        // Every ~1.2s (8 ticks at 0.15s), query the real player position in background to detect scrubbing/seeking
+        if tickCount % 8 == 0 && !isSyncingPosition {
+            syncRealPlayerPosition()
+        }
+    }
+
+    // Background lightweight position check: runs asynchronously off the main thread (0 UI lag)
+    private func syncRealPlayerPosition() {
+        guard isPlaying, duration > 0 else { return }
+        isSyncingPosition = true
+
+        let app = sourceApp
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var script = ""
+            if app == "Spotify" {
+                script = "tell application \"Spotify\" to return (player position as string) & \"||\" & (player state as string)"
+            } else if app == "Apple Music" {
+                script = "tell application \"Music\" to return (player position as string) & \"||\" & (player state is playing as string)"
+            }
+
+            guard !script.isEmpty else {
+                DispatchQueue.main.async { self?.isSyncingPosition = false }
+                return
+            }
+
+            let output = Self.runAppleScript(script) ?? ""
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.isSyncingPosition = false
+                guard !output.isEmpty else { return }
+
+                let parts = output.components(separatedBy: "||")
+                guard parts.count >= 2 else { return }
+
+                let posStr = parts[0].replacingOccurrences(of: ",", with: ".")
+                guard let realPos = Double(posStr) else { return }
+
+                let isStillPlaying: Bool
+                if app == "Spotify" {
+                    isStillPlaying = (parts[1] == "playing")
+                } else {
+                    isStillPlaying = (parts[1].lowercased() == "true")
+                }
+
+                if isStillPlaying != self.isPlaying {
+                    self.isPlaying = isStillPlaying
+                    self.updateProgressTicker()
+                }
+
+                // If player drifted or user sought in the external app (diff > 0.8s):
+                let diff = abs(realPos - self.currentTime)
+                if diff > 0.8 {
+                    self.currentTime = realPos
+                    if self.duration > 0 {
+                        self.progress = min(1.0, max(0.0, realPos / self.duration))
+                    }
+                    LyricsManager.shared.seekTo(realPos)
+                } else if diff > 0.25 {
+                    // Small drift: smoothly align without interrupting lyric animation
+                    self.currentTime = realPos
+                    if self.duration > 0 {
+                        self.progress = min(1.0, max(0.0, realPos / self.duration))
+                    }
+                }
             }
         }
     }
@@ -124,7 +196,7 @@ public final class MediaManager: ObservableObject {
             self.progress = 0
             self.artwork = nil
             self.sourceApp = "System"
-            LyricsManager.shared.updateTime(0)
+            LyricsManager.shared.clear()
             updateProgressTicker()
         }
     }
@@ -170,12 +242,11 @@ public final class MediaManager: ObservableObject {
         let posStr = parts[4].replacingOccurrences(of: ",", with: ".")
         let reportedPos = Double(posStr) ?? 0
 
-        // Monotonic time smoothing: prevents AppleScript integer rounding from dragging ticker backward
-        if self.isPlaying && reportedPos > 0 && abs(reportedPos - self.currentTime) < 1.8 {
-            if reportedPos > self.currentTime {
-                self.currentTime = reportedPos
-            }
-        } else {
+        let diff = abs(reportedPos - self.currentTime)
+        if diff > 1.2 {
+            self.currentTime = reportedPos
+            LyricsManager.shared.seekTo(reportedPos)
+        } else if reportedPos > self.currentTime || !self.isPlaying {
             self.currentTime = reportedPos
         }
 
@@ -199,7 +270,6 @@ public final class MediaManager: ObservableObject {
             album: self.album,
             duration: self.duration
         )
-        LyricsManager.shared.updateTime(self.currentTime)
         updateProgressTicker()
         return true
     }
@@ -243,11 +313,11 @@ public final class MediaManager: ObservableObject {
         let posMusic = parts[4].replacingOccurrences(of: ",", with: ".")
         let reportedMusicPos = Double(posMusic) ?? 0
 
-        if self.isPlaying && reportedMusicPos > 0 && abs(reportedMusicPos - self.currentTime) < 1.8 {
-            if reportedMusicPos > self.currentTime {
-                self.currentTime = reportedMusicPos
-            }
-        } else {
+        let diff = abs(reportedMusicPos - self.currentTime)
+        if diff > 1.2 {
+            self.currentTime = reportedMusicPos
+            LyricsManager.shared.seekTo(reportedMusicPos)
+        } else if reportedMusicPos > self.currentTime || !self.isPlaying {
             self.currentTime = reportedMusicPos
         }
 
@@ -264,53 +334,91 @@ public final class MediaManager: ObservableObject {
             album: self.album,
             duration: self.duration
         )
-        LyricsManager.shared.updateTime(self.currentTime)
         updateProgressTicker()
         return true
     }
 
     // MARK: - Media Controls (Explicitly targets the displayed app)
     public func togglePlayPause() {
-        if sourceApp == "Spotify" {
-            _ = runAppleScript("tell application \"Spotify\" to playpause")
-        } else if sourceApp == "Apple Music" {
-            _ = runAppleScript("tell application \"Music\" to playpause")
-        } else if let send = sendCommandFunc {
-            _ = send(2, nil) // 2 = TogglePlayPause (Universal fallback)
-        }
-
         isPlaying.toggle()
         updateProgressTicker()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.updateNowPlaying()
+
+        let app = sourceApp
+        if app == "Spotify" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = Self.runAppleScript("tell application \"Spotify\" to playpause")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self?.updateNowPlaying()
+                }
+            }
+        } else if app == "Apple Music" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = Self.runAppleScript("tell application \"Music\" to playpause")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self?.updateNowPlaying()
+                }
+            }
+        } else if let send = sendCommandFunc {
+            _ = send(2, nil) // 2 = TogglePlayPause (Universal fallback)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.updateNowPlaying()
+            }
         }
     }
 
     public func nextTrack() {
-        if sourceApp == "Spotify" {
-            _ = runAppleScript("tell application \"Spotify\" to next track")
-        } else if sourceApp == "Apple Music" {
-            _ = runAppleScript("tell application \"Music\" to next track")
+        LyricsManager.shared.clear()
+        self.currentTime = 0
+        self.progress = 0
+
+        let app = sourceApp
+        if app == "Spotify" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = Self.runAppleScript("tell application \"Spotify\" to next track")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self?.updateNowPlaying()
+                }
+            }
+        } else if app == "Apple Music" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = Self.runAppleScript("tell application \"Music\" to next track")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self?.updateNowPlaying()
+                }
+            }
         } else if let send = sendCommandFunc {
             _ = send(4, nil)
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            self?.updateNowPlaying()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.updateNowPlaying()
+            }
         }
     }
 
     public func previousTrack() {
-        if sourceApp == "Spotify" {
-            _ = runAppleScript("tell application \"Spotify\" to previous track")
-        } else if sourceApp == "Apple Music" {
-            _ = runAppleScript("tell application \"Music\" to previous track")
+        LyricsManager.shared.clear()
+        self.currentTime = 0
+        self.progress = 0
+
+        let app = sourceApp
+        if app == "Spotify" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = Self.runAppleScript("tell application \"Spotify\" to previous track")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self?.updateNowPlaying()
+                }
+            }
+        } else if app == "Apple Music" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = Self.runAppleScript("tell application \"Music\" to previous track")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self?.updateNowPlaying()
+                }
+            }
         } else if let send = sendCommandFunc {
             _ = send(5, nil)
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            self?.updateNowPlaying()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.updateNowPlaying()
+            }
         }
     }
 
@@ -318,12 +426,17 @@ public final class MediaManager: ObservableObject {
         let newTime = duration * progressPercent
         self.currentTime = newTime
         self.progress = progressPercent
-        LyricsManager.shared.updateTime(newTime)
+        LyricsManager.shared.seekTo(newTime)
 
-        if sourceApp == "Spotify" {
-            _ = runAppleScript("tell application \"Spotify\" to set player position to \(newTime)")
-        } else if sourceApp == "Apple Music" {
-            _ = runAppleScript("tell application \"Music\" to set player position to \(newTime)")
+        let app = sourceApp
+        if app == "Spotify" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = Self.runAppleScript("tell application \"Spotify\" to set player position to \(newTime)")
+            }
+        } else if app == "Apple Music" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = Self.runAppleScript("tell application \"Music\" to set player position to \(newTime)")
+            }
         } else if let seek = setElapsedTimeFunc {
             seek(newTime)
         }
@@ -347,12 +460,18 @@ public final class MediaManager: ObservableObject {
         }.resume()
     }
 
-    private func runAppleScript(_ source: String) -> String? {
+    @discardableResult
+    nonisolated private static func runAppleScript(_ source: String) -> String? {
         var error: NSDictionary?
         guard let scriptObject = NSAppleScript(source: source) else { return nil }
         let output = scriptObject.executeAndReturnError(&error)
         if error != nil { return nil }
         return output.stringValue
+    }
+
+    @discardableResult
+    private func runAppleScript(_ source: String) -> String? {
+        Self.runAppleScript(source)
     }
 
     public func formatTime(_ seconds: Double) -> String {
